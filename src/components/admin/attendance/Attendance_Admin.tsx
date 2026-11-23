@@ -632,7 +632,7 @@ export default function Attendance_Admin() {
                         >
                             <div className="stat-card" style={{ background: "#FFFFFF", padding: "14px 16px", borderRadius: 10, border: "1px solid #EAECEF" }}>
                                 <div style={{ fontSize: 11, color: "#6B7280", fontWeight: 600, textTransform: "uppercase" }}>Total Staff</div>
-                                <div style={{ fontSize: 22, fontWeight: 700, color: "#1B3363", marginTop: 4 }}>{dailyStats.total_staff}</div>
+                                <div style={{ fontSize: 22, fontWeight: 700, color: "var(--accent, #f43f5e)", marginTop: 4 }}>{dailyStats.total_staff}</div>
                             </div>
                             <div className="stat-card" style={{ background: "#FFFFFF", padding: "14px 16px", borderRadius: 10, border: "1px solid #EAECEF" }}>
                                 <div style={{ fontSize: 11, color: "#6B7280", fontWeight: 600, textTransform: "uppercase" }}>Checked In (Present)</div>
@@ -950,7 +950,7 @@ export default function Attendance_Admin() {
                                 marginBottom: 20,
                             }}
                         >
-                            <div style={{ fontSize: 15, fontWeight: 700, color: "#1B3363", marginBottom: 12 }}>
+                            <div style={{ fontSize: 15, fontWeight: 700, color: "var(--accent, #f43f5e)", marginBottom: 12 }}>
                                 Monthly Summary for {monthlySummaries[0]?.employee_name} ({monthlySummaries[0]?.tag_id})
                             </div>
                             <div
@@ -1404,7 +1404,7 @@ export default function Attendance_Admin() {
             <Modal
                 title={
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <CommentOutlined style={{ color: "#1B3363" }} />
+                        <CommentOutlined style={{ color: "var(--accent, #f43f5e)" }} />
                         <span>
                             Notes & Comments - {selectedRecordForComment?.employee_name} ({selectedRecordForComment?.date})
                         </span>
@@ -1424,7 +1424,7 @@ export default function Attendance_Admin() {
                         type="primary"
                         loading={submittingComment}
                         onClick={handleAddComment}
-                        style={{ background: "#1B3363", borderColor: "#1B3363" }}
+                        style={{ background: "var(--accent, #f43f5e)", borderColor: "var(--accent, #f43f5e)" }}
                     >
                         Add Admin Note
                     </Button>,

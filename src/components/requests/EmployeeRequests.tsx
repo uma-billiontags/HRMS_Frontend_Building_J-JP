@@ -1,12 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button, Card, DatePicker, Input, Modal, message, Select, Space, Tag, Tabs, TimePicker, Typography } from "antd";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Button, Card, DatePicker, Input, message, Select, Space, Tag, TimePicker, Typography } from "antd";
 import {
     MailOutlined,
     SendOutlined,
-    InboxOutlined,
-    CheckOutlined,
-    CloseOutlined,
-    SearchOutlined,
 } from "@ant-design/icons";
 import dayjs, { type Dayjs } from "dayjs";
 import { useAuth } from "../AuthContext";
@@ -259,7 +255,6 @@ function EmailChipsInput({
 
 export default function EmployeeRequests() {
     const { user } = useAuth();
-    const [requestTab, setRequestTab] = useState<"create_mine" | "received_team">("create_mine");
 
     // Form state
     const [requestType, setRequestType] = useState<RequestType>("leave");
@@ -277,18 +272,6 @@ export default function EmployeeRequests() {
     const [rows, setRows] = useState<RequestRow[]>([]);
     const [loading, setLoading] = useState(false);
 
-    // TL: Received team requests state
-    const [teamRows, setTeamRows] = useState<RequestRow[]>([]);
-    const [loadingTeam, setLoadingTeam] = useState(false);
-    const [teamStatusFilter, setTeamStatusFilter] = useState<string>("all");
-    const [teamSearch, setTeamSearch] = useState<string>("");
-
-    // TL Decision state
-    const [rejectModalOpen, setRejectModalOpen] = useState(false);
-    const [targetRow, setTargetRow] = useState<RequestRow | null>(null);
-    const [rejectionReason, setRejectionReason] = useState("");
-    const [submittingDecision, setSubmittingDecision] = useState(false);
-
     // Load personal requests
     const loadRequests = useCallback(async () => {
         setLoading(true);
@@ -304,37 +287,11 @@ export default function EmployeeRequests() {
         }
     }, []);
 
-    // TL: Load received employee requests (excluding TL's own requests)
-    const loadTeamRequests = useCallback(async () => {
-        if (!user?.isTL) return;
-        setLoadingTeam(true);
-        try {
-            const response = await fetch(`${BASE_URL}/api/requests/admin/`, { headers: authHeaders() });
-            const payload = await response.json();
-            if (!response.ok) throw new Error(payload.detail || "Could not load team requests");
-            // Double-safety filter: exclude TL's own requests
-            const filtered = Array.isArray(payload) ? payload.filter((r: RequestRow) => r.sender_email !== user?.email) : [];
-            setTeamRows(filtered);
-        } catch (error) {
-            message.error(error instanceof Error ? error.message : "Could not load employee requests");
-        } finally {
-            setLoadingTeam(false);
-        }
-    }, [user?.isTL, user?.email]);
-
     useEffect(() => {
         loadRequests();
         const timer = window.setInterval(loadRequests, 15_000);
         return () => window.clearInterval(timer);
     }, [loadRequests]);
-
-    useEffect(() => {
-        if (user?.isTL) {
-            loadTeamRequests();
-            const timer = window.setInterval(loadTeamRequests, 20_000);
-            return () => window.clearInterval(timer);
-        }
-    }, [user?.isTL, loadTeamRequests]);
 
     const changeType = (value: RequestType) => {
         setRequestType(value);
@@ -407,116 +364,21 @@ export default function EmployeeRequests() {
         }
     };
 
-    // TL Decision Actions
-    const decideTeamRequest = async (row: RequestRow, decision: "approved" | "rejected", note?: string) => {
-        try {
-            const response = await fetch(`${BASE_URL}/api/requests/admin/${row.id}/decision/`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json", ...authHeaders() },
-                body: JSON.stringify({ decision, decision_note: note || "" }),
-            });
-            const payload = await response.json();
-            if (!response.ok) throw new Error(payload.detail || "Decision could not be saved");
-            message.success(`Request ${decision}.`);
-            await loadTeamRequests();
-        } catch (error) {
-            message.error(error instanceof Error ? error.message : "Decision could not be saved");
-        }
-    };
-
-    const handleOpenRejectModal = (row: RequestRow) => {
-        setTargetRow(row);
-        setRejectionReason("");
-        setRejectModalOpen(true);
-    };
-
-    const handleConfirmReject = async () => {
-        if (!rejectionReason.trim()) {
-            message.warning("Please enter a reason for rejecting this request.");
-            return;
-        }
-        if (!targetRow) return;
-        setSubmittingDecision(true);
-        try {
-            await decideTeamRequest(targetRow, "rejected", rejectionReason.trim());
-            setRejectModalOpen(false);
-            setTargetRow(null);
-            setRejectionReason("");
-        } finally {
-            setSubmittingDecision(false);
-        }
-    };
-
     const statusColor = (status: RequestRow["status"]) =>
         status === "approved" ? "green" : status === "rejected" ? "red" : "gold";
 
-    // TL Filtered Requests
-    const filteredTeamRows = useMemo(() => {
-        return teamRows.filter((row) => {
-            if (teamStatusFilter !== "all" && row.status !== teamStatusFilter) return false;
-            if (teamSearch.trim()) {
-                const q = teamSearch.toLowerCase();
-                const matchEmp = row.employee_name?.toLowerCase().includes(q) || row.sender_email?.toLowerCase().includes(q);
-                const matchSub = row.subject?.toLowerCase().includes(q);
-                const matchBody = row.body?.toLowerCase().includes(q);
-                return matchEmp || matchSub || matchBody;
-            }
-            return true;
-        });
-    }, [teamRows, teamStatusFilter, teamSearch]);
-
-    const pendingTeamCount = useMemo(() => {
-        return teamRows.filter((r) => r.status === "pending").length;
-    }, [teamRows]);
-
     return (
         <div style={{ maxWidth: 1100, margin: "0 auto" }}>
-            {/* TL Navigation Tabs */}
-            {user?.isTL && (
-                <Tabs
-                    activeKey={requestTab}
-                    onChange={(k) => setRequestTab(k as "create_mine" | "received_team")}
-                    style={{ marginBottom: 20 }}
-                    items={[
-                        {
-                            key: "create_mine",
-                            label: (
-                                <span style={{ fontSize: 15, fontWeight: 600, padding: "0 8px" }}>
-                                    <MailOutlined style={{ marginRight: 6 }} />
-                                    Create / My Requests
-                                </span>
-                            ),
-                        },
-                        {
-                            key: "received_team",
-                            label: (
-                                <span style={{ fontSize: 15, fontWeight: 600, padding: "0 8px" }}>
-                                    <InboxOutlined style={{ marginRight: 6 }} />
-                                    Received Employee Requests
-                                    {pendingTeamCount > 0 && (
-                                        <Tag color="red" style={{ marginLeft: 8, borderRadius: 10, fontSize: 11, padding: "0 6px" }}>
-                                            {pendingTeamCount} Pending
-                                        </Tag>
-                                    )}
-                                </span>
-                            ),
-                        },
-                    ]}
-                />
-            )}
-
-            {/* TAB 1: CREATE REQUEST & MY REQUESTS */}
-            {(!user?.isTL || requestTab === "create_mine") && (
-                <div>
-                    <Card
-                        title={
-                            <Space>
-                                <MailOutlined />
-                                <span>Compose Request</span>
-                            </Space>
-                        }
-                        style={{ marginBottom: 24, borderRadius: 12 }}
-                    >
+            <div>
+                <Card
+                    title={
+                        <Space>
+                            <MailOutlined />
+                            <span>Compose Request</span>
+                        </Space>
+                    }
+                    style={{ marginBottom: 24, borderRadius: 12 }}
+                >
                         <Space direction="vertical" size={14} style={{ width: "100%" }}>
                             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                                 <Select
@@ -679,210 +541,6 @@ export default function EmployeeRequests() {
                         {!loading && rows.length === 0 && <Text type="secondary">No requests sent yet.</Text>}
                     </Space>
                 </div>
-            )}
-
-            {/* TAB 2: RECEIVED EMPLOYEE REQUESTS (TL ONLY) */}
-            {user?.isTL && requestTab === "received_team" && (
-                <div>
-                    {/* Controls Bar */}
-                    <Card
-                        style={{
-                            marginBottom: 20,
-                            borderRadius: 12,
-                            border: "1px solid #EAECEF",
-                            background: "#FAFAFA",
-                        }}
-                        styles={{ body: { padding: "14px 18px" } }}
-                    >
-                        <div
-                            style={{
-                                display: "flex",
-                                justifyContent: "space-between",
-                                alignItems: "center",
-                                flexWrap: "wrap",
-                                gap: 14,
-                            }}
-                        >
-                            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-                                <div>
-                                    <span style={{ fontSize: 12, fontWeight: 600, color: "#4B5563", marginRight: 8 }}>
-                                        Status:
-                                    </span>
-                                    <Select
-                                        value={teamStatusFilter}
-                                        onChange={(val) => setTeamStatusFilter(val)}
-                                        style={{ width: 140 }}
-                                        options={[
-                                            { value: "all", label: "All Requests" },
-                                            { value: "pending", label: `Pending (${pendingTeamCount})` },
-                                            { value: "approved", label: "Approved" },
-                                            { value: "rejected", label: "Rejected" },
-                                        ]}
-                                    />
-                                </div>
-
-                                <Input
-                                    placeholder="Search employee, subject, message..."
-                                    prefix={<SearchOutlined style={{ color: "#94A3B8" }} />}
-                                    value={teamSearch}
-                                    onChange={(e) => setTeamSearch(e.target.value)}
-                                    allowClear
-                                    style={{ width: 280 }}
-                                />
-                            </div>
-
-                            <div style={{ fontSize: 13, color: "#64748B" }}>
-                                Total Employee Requests: <strong>{filteredTeamRows.length}</strong>
-                            </div>
-                        </div>
-                    </Card>
-
-                    {/* Employee Requests List */}
-                    <Space direction="vertical" size={14} style={{ width: "100%" }}>
-                        {filteredTeamRows.map((row) => (
-                            <Card key={row.id} style={{ borderRadius: 12, border: "1px solid #E2E8F0" }}>
-                                <div style={{ display: "flex", justifyContent: "space-between", gap: 14, flexWrap: "wrap" }}>
-                                    <div>
-                                        <Text strong style={{ fontSize: 16 }}>{row.subject}</Text>
-                                        <div style={{ marginTop: 4 }}>
-                                            <Text type="secondary">
-                                                From: <strong>{row.employee_name}</strong> ({row.sender_email}) • {dayjs(row.created_at).format("DD MMM YYYY, HH:mm")}
-                                            </Text>
-                                        </div>
-                                    </div>
-                                    <Tag color={statusColor(row.status)} style={{ fontSize: 12, padding: "2px 8px" }}>
-                                        {row.status.toUpperCase()}
-                                    </Tag>
-                                </div>
-
-                                <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 10, fontSize: 13, color: "#475569" }}>
-                                    <span><strong>Template:</strong> {row.request_type}</span>
-                                    <span>• <strong>To:</strong> {row.recipient_email}</span>
-                                    {row.cc_email && <span>• <strong>Cc:</strong> {row.cc_email}</span>}
-                                </div>
-
-                                {(row.start_date || row.start_time) && (
-                                    <div style={{ marginTop: 6 }}>
-                                        <Text type="secondary">
-                                            {row.start_date}
-                                            {row.end_date && row.end_date !== row.start_date ? ` — ${row.end_date}` : ""}
-                                            {row.start_time ? ` • ${row.start_time.slice(0, 5)}—${row.end_time?.slice(0, 5)}` : ""}
-                                        </Text>
-                                    </div>
-                                )}
-
-                                <p style={{ whiteSpace: "pre-wrap", margin: "12px 0", color: "#1E293B", fontSize: 14 }}>
-                                    {row.body}
-                                </p>
-
-                                {row.status === "pending" && (
-                                    <Space style={{ marginTop: 8 }}>
-                                        <Button
-                                            type="primary"
-                                            icon={<CheckOutlined />}
-                                            onClick={() => decideTeamRequest(row, "approved")}
-                                            style={{ background: "#10B981", borderColor: "#10B981" }}
-                                        >
-                                            Approve
-                                        </Button>
-                                        <Button
-                                            danger
-                                            icon={<CloseOutlined />}
-                                            onClick={() => handleOpenRejectModal(row)}
-                                        >
-                                            Reject
-                                        </Button>
-                                    </Space>
-                                )}
-
-                                {row.status === "rejected" && (
-                                    <div
-                                        style={{
-                                            marginTop: 12,
-                                            padding: "10px 14px",
-                                            background: "#FEF2F2",
-                                            border: "1px solid #FCA5A5",
-                                            borderRadius: 8,
-                                        }}
-                                    >
-                                        <Text strong style={{ color: "#DC2626", display: "block", marginBottom: 3 }}>
-                                            Reason for Rejection {row.decided_by_name ? `(by ${row.decided_by_name})` : ""}:
-                                        </Text>
-                                        <Text style={{ color: "#991B1B", whiteSpace: "pre-wrap" }}>
-                                            {row.decision_note || "No reason specified."}
-                                        </Text>
-                                    </div>
-                                )}
-
-                                {row.status === "approved" && row.decision_note && (
-                                    <div
-                                        style={{
-                                            marginTop: 12,
-                                            padding: "10px 14px",
-                                            background: "#F0FDF4",
-                                            border: "1px solid #86EFAC",
-                                            borderRadius: 8,
-                                        }}
-                                    >
-                                        <Text strong style={{ color: "#16A34A", display: "block", marginBottom: 3 }}>
-                                            Approval Note {row.decided_by_name ? `(by ${row.decided_by_name})` : ""}:
-                                        </Text>
-                                        <Text style={{ color: "#166534", whiteSpace: "pre-wrap" }}>
-                                            {row.decision_note}
-                                        </Text>
-                                    </div>
-                                )}
-                            </Card>
-                        ))}
-                        {!loadingTeam && filteredTeamRows.length === 0 && (
-                            <Text type="secondary">No employee requests found.</Text>
-                        )}
-                    </Space>
-
-                    {/* Rejection Modal for TL */}
-                    <Modal
-                        title="Reject Employee Request"
-                        open={rejectModalOpen}
-                        onOk={handleConfirmReject}
-                        onCancel={() => {
-                            if (!submittingDecision) {
-                                setRejectModalOpen(false);
-                                setTargetRow(null);
-                            }
-                        }}
-                        okText="Reject Request"
-                        okButtonProps={{ danger: true, loading: submittingDecision }}
-                        cancelButtonProps={{ disabled: submittingDecision }}
-                        destroyOnClose
-                    >
-                        {targetRow && (
-                            <div style={{ marginBottom: 14, background: "#F8FAFC", padding: 12, borderRadius: 8, border: "1px solid #E2E8F0" }}>
-                                <div style={{ color: "#475569", fontSize: 13, marginBottom: 4 }}>
-                                    Employee: <strong style={{ color: "#1E293B" }}>{targetRow.employee_name}</strong> ({targetRow.sender_email})
-                                </div>
-                                <div style={{ color: "#475569", fontSize: 13, marginBottom: 4 }}>
-                                    Subject: <strong style={{ color: "#1E293B" }}>{targetRow.subject}</strong>
-                                </div>
-                                <div style={{ color: "#475569", fontSize: 13 }}>
-                                    To: <strong style={{ color: "#1E293B" }}>{targetRow.recipient_email}</strong>
-                                    {targetRow.cc_email ? ` • Cc: ${targetRow.cc_email}` : ""}
-                                </div>
-                            </div>
-                        )}
-                        <div style={{ marginBottom: 6 }}>
-                            <Text strong>
-                                Reason for Rejection <span style={{ color: "#DC2626" }}>*</span>
-                            </Text>
-                        </div>
-                        <TextArea
-                            rows={4}
-                            value={rejectionReason}
-                            onChange={(e) => setRejectionReason(e.target.value)}
-                            placeholder="Please specify why this request is being rejected. This will be emailed to the employee and displayed on their dashboard."
-                        />
-                    </Modal>
-                </div>
-            )}
-        </div>
+            </div>
     );
 }

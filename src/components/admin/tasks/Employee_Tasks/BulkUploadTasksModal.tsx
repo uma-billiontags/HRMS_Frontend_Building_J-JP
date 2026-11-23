@@ -130,8 +130,8 @@ export default function BulkUploadTasksModal({
     // Initial Sample Dummy Data (Matches user requirement)
     // ─────────────────────────────────────────────────────────────
     const getInitialSampleRows = (): SheetRow[] => {
-        const emp1 = employees[0] || { name: "Kannan JS", department: "Creative Design" };
-        const dept1 = emp1.department || departments[0]?.name || "Creative Design";
+        const emp1 = employees[0] || { name: "", department: "" };
+        const dept1 = emp1.department || departments[0]?.name || "";
         const emp2 = employees[1] || emp1;
         const dept2 = emp2.department || dept1;
         const today = dayjs().format("YYYY-MM-DD");
@@ -532,8 +532,8 @@ export default function BulkUploadTasksModal({
     // Download Sample Template (.xlsx)
     // ─────────────────────────────────────────────────────────────
     const handleDownloadTemplate = () => {
-        const emp1 = employees[0] || { name: "Kannan JS", department: "Creative Design" };
-        const dept1 = emp1.department || departments[0]?.name || "Creative Design";
+        const emp1 = employees[0] || { name: "", department: "" };
+        const dept1 = emp1.department || departments[0]?.name || "";
         const emp2 = employees[1] || emp1;
         const dept2 = emp2.department || dept1;
 
@@ -745,7 +745,7 @@ export default function BulkUploadTasksModal({
                         loading={uploading}
                         disabled={selectedRowKeys.length === 0}
                         onClick={handleConfirmCreate}
-                        style={{ background: "#1B3363", borderColor: "#1B3363", fontWeight: 600, height: 36 }}
+                        style={{ background: "var(--accent, #f43f5e)", borderColor: "var(--accent, #f43f5e)", fontWeight: 600, height: 36 }}
                     >
                         Create {selectedRowKeys.length} Tasks
                     </Button>,

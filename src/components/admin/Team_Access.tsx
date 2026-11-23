@@ -108,21 +108,6 @@ export default function Team_Access() {
     const [bulkModalOpen, setBulkModalOpen] = useState(false);
     const [form] = Form.useForm();
 
-    const watchedRole = Form.useWatch("role", form);
-    const isRoleTL = typeof watchedRole === "string" && ["TL", "TEAM LEAD"].includes(watchedRole.trim().toUpperCase());
-
-    const availableTLs = users.filter((u) => {
-        const isTL = typeof u.role === "string" && ["TL", "TEAM LEAD"].includes(u.role.trim().toUpperCase());
-        const isSelf = editing && u.id === editing.id;
-        return isTL && u.is_active && !isSelf;
-    });
-
-    useEffect(() => {
-        if (isRoleTL) {
-            form.setFieldsValue({ belong_to_tl: "ADMIN" });
-        }
-    }, [isRoleTL, form]);
-
     const [addDeptOpen, setAddDeptOpen] = useState(false);
     const [newDeptName, setNewDeptName] = useState("");
     const [savingDept, setSavingDept] = useState(false);
@@ -195,7 +180,7 @@ export default function Team_Access() {
             email: record.email,
             department: record.department || undefined,
             role: record.role,
-            belong_to_tl: record.belong_to_tl ? String(record.belong_to_tl) : "ADMIN",
+            belong_to_tl: "ADMIN",
             is_active: record.is_active,
             password: record.password || "",
         });
@@ -213,10 +198,6 @@ export default function Team_Access() {
 
         setSaving(true);
         const isEdit = !!editing;
-        const roleStr = typeof values.role === "string" ? values.role.trim().toUpperCase() : "";
-        const isTL = ["TL", "TEAM LEAD"].includes(roleStr);
-        const tlVal = values.belong_to_tl;
-        const belong_to_tl = isTL || tlVal === "ADMIN" || tlVal === "0" || !tlVal ? null : Number(tlVal);
 
         const payload: Record<string, unknown> = {
             employee_id: values.employee_id,
@@ -224,7 +205,7 @@ export default function Team_Access() {
             email: values.email,
             department: values.department || "",
             role: values.role || "",
-            belong_to_tl: belong_to_tl,
+            belong_to_tl: null, // Direct to Admin
             is_active: values.is_active,
         };
         if (values.password) payload.password = values.password;
@@ -483,28 +464,15 @@ export default function Team_Access() {
         },
         {
             title: "Reporting To",
-            dataIndex: "belong_to_tl_name",
-            key: "belong_to_tl_name",
-            render: (_: any, record: EmployeeCredential) => {
-                if (record.belong_to_tl_name) {
-                    return (
-                        <span style={{
-                            fontSize: 11, fontWeight: 600, color: "#0d9488", background: "rgba(13, 148, 136, 0.08)",
-                            border: "1px solid rgba(13, 148, 136, 0.25)", padding: "2px 9px", borderRadius: 6, whiteSpace: "nowrap",
-                        }}>
-                            TL: {record.belong_to_tl_name}
-                        </span>
-                    );
-                }
-                return (
-                    <span style={{
-                        fontSize: 11, fontWeight: 600, color: "var(--purple)", background: "var(--purple-bg)",
-                        border: "1px solid rgba(139, 92, 246, 0.3)", padding: "2px 9px", borderRadius: 6, whiteSpace: "nowrap",
-                    }}>
-                        👑 Direct to Admin
-                    </span>
-                );
-            },
+            key: "reporting_to",
+            render: () => (
+                <span style={{
+                    fontSize: 11, fontWeight: 600, color: "var(--purple)", background: "var(--purple-bg)",
+                    border: "1px solid rgba(139, 92, 246, 0.3)", padding: "2px 9px", borderRadius: 6, whiteSpace: "nowrap",
+                }}>
+                    👑 Direct to Admin
+                </span>
+            ),
         },
         {
             title: "Password",
@@ -620,6 +588,51 @@ export default function Team_Access() {
 
     const isEmployeeTab = activeTab === "employee";
 
+    const handleSaveNewDepartment = async () => {
+        const name = newDeptName.trim();
+        if (!name) {
+            message.error("Department name is required");
+            return;
+        }
+        if (departmentOptions.some((d) => d.toLowerCase() === name.toLowerCase())) {
+            message.error("This department already exists");
+            return;
+        }
+        setSavingDept(true);
+        try {
+            const res = await fetch(`${BASE_URL}/api/auth/employees/departments/create/`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", ...authHeaders() },
+                body: JSON.stringify({ name }),
+            });
+            if (res.ok) {
+                const data = await res.json();
+                const updatedList = Array.isArray(data.departments)
+                    ? data.departments
+                    : [...departmentOptions, name].sort();
+                setDepartmentOptions(updatedList);
+                message.success(`Department "${name}" added successfully`);
+                if (modalOpen) {
+                    form.setFieldsValue({ department: name });
+                }
+                setAddDeptOpen(false);
+                setNewDeptName("");
+            } else {
+                const err = await res.json().catch(() => ({}));
+                message.error(err.detail || "Failed to add department");
+            }
+        } catch {
+            setDepartmentOptions((prev) => [...prev, name].sort());
+            if (modalOpen) {
+                form.setFieldsValue({ department: name });
+            }
+            setAddDeptOpen(false);
+            setNewDeptName("");
+        } finally {
+            setSavingDept(false);
+        }
+    };
+
     return (
         <div>
             {/* ── Page Header ── */}
@@ -637,11 +650,14 @@ export default function Team_Access() {
                         Bulk Upload
                     </Button>
                 )}
-                <Button onClick={isEmployeeTab ? openAdd : openAddAdmin} icon={<PlusOutlined />}
+                <Button
+                    onClick={isEmployeeTab ? openAdd : openAddAdmin}
+                    icon={<PlusOutlined />}
                     style={{
                         borderRadius: 9, border: "none", background: "var(--accent)", color: "#fff",
                         fontSize: 12, fontWeight: 700, padding: "8px 16px", display: "flex", alignItems: "center", gap: 6,
-                    }}>
+                    }}
+                >
                     {isEmployeeTab ? "Add Team Member" : "Add Admin"}
                 </Button>
             </div>
@@ -672,7 +688,11 @@ export default function Team_Access() {
                     className="team-access-tabs"
                 />
                 <Input
-                    placeholder={isEmployeeTab ? "Search team members by name, email, department, role…" : "Search admins by name, email…"}
+                    placeholder={
+                        isEmployeeTab
+                            ? "Search team members by name, email, department, role…"
+                            : "Search admins by name, email…"
+                    }
                     prefix={<SearchOutlined style={{ color: "var(--text-muted)" }} />}
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
@@ -825,18 +845,17 @@ export default function Team_Access() {
                         <Form.Item
                             label="Reporting To"
                             name="belong_to_tl"
-                            tooltip={isRoleTL ? "Team Leads always report directly to Admin" : "Select a Team Lead or 'Direct to Admin'"}
+                            tooltip="Team members report directly to Admin"
                         >
                             <Select
-                                placeholder="Select Reporting To (Admin or Team Lead)"
-                                showSearch
-                                disabled={isRoleTL}
+                                placeholder="Select Reporting To"
+                                defaultValue="ADMIN"
                                 optionFilterProp="label"
                                 options={[
                                     { value: "ADMIN", label: "👑 Admin (Direct Report)" },
-                                    ...availableTLs.map((tl) => ({
-                                        value: String(tl.id),
-                                        label: tl.department ? `👥 ${tl.name} (${tl.department}) - Team Lead` : `👥 ${tl.name} - Team Lead`,
+                                    ...admins.map((a) => ({
+                                        value: `admin_${a.id}`,
+                                        label: `👑 Admin: ${a.name}`,
                                     })),
                                 ]}
                             />
@@ -901,7 +920,10 @@ export default function Team_Access() {
             {/* ── Add New Department Modal ── */}
             <Modal
                 open={addDeptOpen}
-                onCancel={() => setAddDeptOpen(false)}
+                onCancel={() => {
+                    setAddDeptOpen(false);
+                    setNewDeptName("");
+                }}
                 title={
                     <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <PlusOutlined /> Add New Department
@@ -911,22 +933,7 @@ export default function Team_Access() {
                 confirmLoading={savingDept}
                 centered
                 destroyOnClose
-                onOk={() => {
-                    const name = newDeptName.trim();
-                    if (!name) {
-                        message.error("Department name is required");
-                        return;
-                    }
-                    if (departmentOptions.some((d) => d.toLowerCase() === name.toLowerCase())) {
-                        message.error("This department already exists");
-                        return;
-                    }
-                    setSavingDept(true);
-                    setDepartmentOptions((prev) => [...prev, name].sort());
-                    form.setFieldsValue({ department: name });
-                    setSavingDept(false);
-                    setAddDeptOpen(false);
-                }}
+                onOk={handleSaveNewDepartment}
             >
                 <Form layout="vertical">
                     <Form.Item label="Department Name" required>
@@ -934,17 +941,7 @@ export default function Team_Access() {
                             placeholder="e.g. Marketing"
                             value={newDeptName}
                             onChange={(e) => setNewDeptName(e.target.value)}
-                            onPressEnter={() => {
-                                const name = newDeptName.trim();
-                                if (!name) return;
-                                if (departmentOptions.some((d) => d.toLowerCase() === name.toLowerCase())) {
-                                    message.error("This department already exists");
-                                    return;
-                                }
-                                setDepartmentOptions((prev) => [...prev, name].sort());
-                                form.setFieldsValue({ department: name });
-                                setAddDeptOpen(false);
-                            }}
+                            onPressEnter={handleSaveNewDepartment}
                             autoFocus
                         />
                     </Form.Item>
@@ -961,7 +958,6 @@ export default function Team_Access() {
                 }}
                 departments={departmentOptions}
                 existingMembers={users}
-                teamLeads={availableTLs}
             />
         </div>
     );

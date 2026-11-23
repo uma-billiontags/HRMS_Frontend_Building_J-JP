@@ -23,16 +23,17 @@ import {
     BarChartOutlined,
     TrophyOutlined,
     HistoryOutlined,
-    TeamOutlined,
     AppstoreOutlined,
     ReloadOutlined,
+    MenuOutlined,
 } from "@ant-design/icons";
 import NotificationBell from "./NotificationBell";
 
 interface HeaderProps {
     role: "admin" | "employee";
     userName: string;
-    isTL?: boolean;
+    sidebarCollapsed?: boolean;
+    onToggleSidebar?: () => void;
 }
 
 interface HeaderConfig {
@@ -55,7 +56,7 @@ const ROUTE_CONFIGS: Record<string, HeaderConfig> = {
     },
     "/admin/my_tasks": {
         title: "Assigned Tasks",
-        subtitle: "Tasks a team lead assigned directly to you",
+        subtitle: "Tasks assigned directly to you",
         icon: <CheckSquareOutlined />,
     },
     "/admin/my_upcoming_tasks": {
@@ -64,12 +65,12 @@ const ROUTE_CONFIGS: Record<string, HeaderConfig> = {
         icon: <CalendarOutlined />,
     },
     "/admin/my_submitted_tasks": {
-        title: "Submitted Tasks (Assigned by TL)",
+        title: "Submitted Tasks",
         subtitle: "Tasks awaiting review — review outcomes determine completed or rework",
         icon: <ClockCircleOutlined />,
     },
     "/admin/my_completed_tasks": {
-        title: "Completed Tasks (Assigned by TL)",
+        title: "Completed Tasks",
         subtitle: "Your finished work — review outcomes and archive",
         icon: <CheckCircleOutlined />,
     },
@@ -160,6 +161,16 @@ const ROUTE_CONFIGS: Record<string, HeaderConfig> = {
         subtitle: "Overview of metrics, activities, and daily progress",
         icon: <DashboardOutlined />,
     },
+    "/employee/normal_tasks": {
+        title: "Normal Tasks",
+        subtitle: "Manage and track standard tasks and milestone deliverables",
+        icon: <CheckSquareOutlined />,
+    },
+    "/employee/recurring_tasks": {
+        title: "Recurring Tasks",
+        subtitle: "View and execute automated daily/weekly recurring routines",
+        icon: <SyncOutlined />,
+    },
     "/employee/attendance": {
         title: "Attendance & Punch Management",
         subtitle: "Track daily check-in/out, production hours, and regularization",
@@ -176,7 +187,7 @@ const ROUTE_CONFIGS: Record<string, HeaderConfig> = {
         icon: <CalendarOutlined />,
     },
     "/employee/submitted_tasks": {
-        title: "Submitted Tasks (Assigned by TL)",
+        title: "Submitted Tasks",
         subtitle: "Tasks awaiting review — review outcomes determine completed or rework",
         icon: <ClockCircleOutlined />,
     },
@@ -215,26 +226,6 @@ const ROUTE_CONFIGS: Record<string, HeaderConfig> = {
         subtitle: "Everything that happened on your tasks",
         icon: <HistoryOutlined />,
     },
-    "/employee/tl_tasks": {
-        title: "Team Tasks",
-        subtitle: "Tasks you created — assign to your team or take one yourself",
-        icon: <TeamOutlined />,
-    },
-    "/employee/tl_review_tasks": {
-        title: "Review Queue",
-        subtitle: "Approve or send back tasks you assigned to your team",
-        icon: <AuditOutlined />,
-    },
-    "/employee/tl_completed_tasks": {
-        title: "Team Completed Tasks",
-        subtitle: "Tasks assigned by you that have been reviewed & approved",
-        icon: <CheckCircleOutlined />,
-    },
-    "/employee/upcoming_scheduled_tasks": {
-        title: "Upcoming Scheduled Tasks",
-        subtitle: "Schedules you created — untick any specific date to skip that day for the assigned member",
-        icon: <ScheduleOutlined />,
-    },
 };
 
 const FALLBACK_CONFIG: HeaderConfig = {
@@ -243,7 +234,7 @@ const FALLBACK_CONFIG: HeaderConfig = {
     icon: <AppstoreOutlined />,
 };
 
-export default function Header({ role, userName, isTL = false }: HeaderProps) {
+export default function Header({ role, userName, sidebarCollapsed = false, onToggleSidebar }: HeaderProps) {
     const location = useLocation();
     const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -273,18 +264,40 @@ export default function Header({ role, userName, isTL = false }: HeaderProps) {
         ? "Overview of metrics, activities, and daily progress"
         : config.subtitle;
 
-    const roleBadgeText = role === "admin" ? "Admin" : isTL ? "Team Lead" : "Employee";
+    const roleBadgeText = role === "admin" ? "Admin" : "Employee";
     const roleBadgeColor =
         role === "admin"
             ? { bg: "#fef3c7", text: "#92400e", border: "#fde68a" }
-            : isTL
-            ? { bg: "#ede9fe", text: "#6d28d9", border: "#ddd6fe" }
             : { bg: "#f1f5f9", text: "#475569", border: "#e2e8f0" };
 
     return (
         <header className="db-header">
             {/* Left: Icon, Page Title, and Uppercase Subtitle */}
-            <div className="db-header-left">
+            <div className="db-header-left" style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                {sidebarCollapsed && onToggleSidebar && (
+                    <button
+                        type="button"
+                        onClick={onToggleSidebar}
+                        aria-label="Expand sidebar"
+                        title="Expand sidebar"
+                        style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            width: 34,
+                            height: 34,
+                            borderRadius: 8,
+                            border: "1px solid var(--border, #e2e8f0)",
+                            background: "var(--bg-card, #ffffff)",
+                            cursor: "pointer",
+                            color: "var(--text-primary, #1e293b)",
+                            padding: 0,
+                            transition: "all 0.15s ease",
+                        }}
+                    >
+                        <MenuOutlined style={{ fontSize: 16 }} />
+                    </button>
+                )}
                 <div style={{ display: "flex", flexDirection: "column", justifyContent: "center" }}>
                     <div
                         style={{

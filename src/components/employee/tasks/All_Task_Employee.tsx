@@ -1,9 +1,9 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
-import { Table, Button, Input, Modal, Form, Tooltip, Select, message, Tag, Image } from "antd";
+import { Table, Button, Input, Modal, Form, Tooltip, Select, message, Tag, Image, DatePicker } from "antd";
 import {
     SearchOutlined, ReloadOutlined, PlayCircleOutlined, PauseCircleOutlined,
     CheckCircleOutlined, LinkOutlined, SortAscendingOutlined, SortDescendingOutlined,
-    CoffeeOutlined
+    CoffeeOutlined, PlusOutlined
 } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import dayjs from "dayjs";
@@ -84,6 +84,7 @@ interface Active_Task_EmployeeProps {
     forceScope?: "mine";        // "My Task" page (TL) passes this to lock the scope
     hideScopeToggle?: boolean;  // and this, to hide the All/Mine picker
     pageTitle?: string;         // heading override
+    mode?: "normal" | "recurring";
 }
 
 const STATUS_META: Record<TaskStatus, { label: string; color: string; bg: string }> = {
@@ -193,14 +194,30 @@ function StatCard({ label, value }: { label: string; value: number | string }) {
 // ── Which scope is the table currently showing ──────────────────────────────
 type ScopeFilter = "all" | "mine";
 
+interface ReporterOption {
+    id: number;
+    name: string;
+    type: "admin" | "tl";
+    role: string;
+    label: string;
+    key: string;
+}
+
 export default function All_Task_Employee({
     forceScope,
     pageTitle: _pageTitle = "Assigned Tasks",
+    mode,
 }: Active_Task_EmployeeProps) {
     const [tasks, setTasks] = useState<MyTask[]>([]);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState("");
     const [busyTaskId, setBusyTaskId] = useState<number | null>(null);
+
+    // Reporters (Admins and TLs) for task creation
+    const [reporters, setReporters] = useState<ReporterOption[]>([]);
+    const [createModalOpen, setCreateModalOpen] = useState(false);
+    const [createSubmitting, setCreateSubmitting] = useState(false);
+    const [createForm] = Form.useForm();
 
     // ── The logged-in employee's own id — still used for the "You" tag and
     // any leftover ownership checks. Fetched once from /api/auth/me/.
@@ -240,11 +257,23 @@ export default function All_Task_Employee({
             .finally(() => setMyIdLoading(false));
     }, []);
 
+    const fetchReporters = useCallback(() => {
+        fetch(`${BASE_URL}/api/tasks/get_all_reporters/`, { headers: { ...authHeaders() } })
+            .then((r) => r.json())
+            .then((d) => {
+                if (Array.isArray(d)) {
+                    setReporters(d);
+                }
+            })
+            .catch(() => {});
+    }, []);
+
     const fetchTasks = useCallback(() => {
         setLoading(true);
+        const modeParam = mode ? `?mode=${mode}` : "";
         const endpoint = scopeFilter === "mine"
-            ? `${BASE_URL}/api/tasks/my_tasks/`
-            : `${BASE_URL}/api/tasks/get_all_tasks/`;
+            ? `${BASE_URL}/api/tasks/my_tasks/${modeParam}`
+            : `${BASE_URL}/api/tasks/get_all_tasks/${modeParam}`;
 
         fetch(endpoint, { headers: { ...authHeaders() } })
             .then((r) => r.json())
@@ -255,7 +284,44 @@ export default function All_Task_Employee({
             })
             .catch(() => message.error("Failed to load tasks"))
             .finally(() => setLoading(false));
-    }, [scopeFilter]);
+    }, [scopeFilter, mode]);
+
+    const handleCreateTask = async (values: any) => {
+        setCreateSubmitting(true);
+        try {
+            const payload = {
+                task_name: values.task_name.trim(),
+                project_name: values.project_name?.trim() || "",
+                priority: values.priority || "medium",
+                due_date: values.due_date ? dayjs(values.due_date).format("YYYY-MM-DD") : null,
+                reporter: values.reporter,
+            };
+
+            const res = await fetch(`${BASE_URL}/api/tasks/quick_create/`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    ...authHeaders(),
+                },
+                body: JSON.stringify(payload),
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                message.success(`Task ${data.sub_task_id || data.task_id} created successfully!`);
+                setCreateModalOpen(false);
+                createForm.resetFields();
+                fetchTasks();
+            } else {
+                const err = await res.json().catch(() => ({}));
+                message.error(err.detail || "Failed to create task");
+            }
+        } catch {
+            message.error("Network error while creating task");
+        } finally {
+            setCreateSubmitting(false);
+        }
+    };
 
     const fetchActiveSession = useCallback(() => {
         fetch(`${BASE_URL}/api/tasks/my_active_session/`, { headers: { ...authHeaders() } })
@@ -298,7 +364,8 @@ export default function All_Task_Employee({
         fetchMe();
         fetchTasks();
         fetchActiveSession();
-    }, [fetchMe, fetchTasks, fetchActiveSession]);
+        fetchReporters();
+    }, [fetchMe, fetchTasks, fetchActiveSession, fetchReporters]);
 
     const isMine = useCallback(
         (task: MyTask) => myId !== null && task.assigned_to === myId,
@@ -604,13 +671,11 @@ export default function All_Task_Employee({
             ),
         },
         {
-            title: "Assigned By",
-            dataIndex: "assigned_by_name",
-            key: "assigned_by_name",
-            width: 120,
-            render: (v: string | null) => (
-                <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>{v ?? "—"}</span>
-            ),
+            title: "Status",
+            dataIndex: "task_status",
+            key: "task_status",
+            width: 130,
+            render: (v: TaskStatus) => <StatusTag status={v} />,
         },
         {
             title: "Priority",
@@ -620,11 +685,13 @@ export default function All_Task_Employee({
             render: (v: string | null) => <PriorityTag priority={v} />,
         },
         {
-            title: "Status",
-            dataIndex: "task_status",
-            key: "task_status",
-            width: 130,
-            render: (v: TaskStatus) => <StatusTag status={v} />,
+            title: "Reporter",
+            dataIndex: "assigned_by_name",
+            key: "assigned_by_name",
+            width: 140,
+            render: (v: string | null) => (
+                <span style={{ fontSize: 12, fontWeight: 500, color: "var(--text-secondary)" }}>{v ?? "—"}</span>
+            ),
         },
         {
             title: "Allotted Time",
@@ -891,6 +958,31 @@ export default function All_Task_Employee({
                 >
                     Refresh
                 </Button>
+                {mode !== "recurring" && (
+                    <Button
+                        type="primary"
+                        icon={<PlusOutlined />}
+                        onClick={() => {
+                            createForm.resetFields();
+                            if (reporters.length > 0) {
+                                createForm.setFieldsValue({ reporter: reporters[0].key });
+                            }
+                            setCreateModalOpen(true);
+                        }}
+                        style={{
+                            height: 35,
+                            background: "var(--accent, #D14E9A)",
+                            borderColor: "var(--accent, #D14E9A)",
+                            borderRadius: 8,
+                            fontWeight: 600,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
+                        }}
+                    >
+                        + Add a Card
+                    </Button>
+                )}
                 <span style={{ fontSize: 12, color: "var(--text-muted)", marginLeft: "auto" }}>
                     {filtered.length} of {tasks.length} tasks
                 </span>
@@ -983,6 +1075,83 @@ export default function All_Task_Employee({
                     fetchActiveSession();
                 }}
             />
+
+            <Modal
+                title={<div style={{ fontWeight: 700, fontSize: 16 }}>+ Create New Task / Add Card</div>}
+                open={createModalOpen}
+                onCancel={() => {
+                    setCreateModalOpen(false);
+                    createForm.resetFields();
+                }}
+                footer={null}
+                destroyOnClose
+                centered
+                width={520}
+            >
+                <Form
+                    form={createForm}
+                    layout="vertical"
+                    initialValues={{ priority: "medium", reporter: reporters[0]?.key }}
+                    onFinish={handleCreateTask}
+                    style={{ marginTop: 14 }}
+                >
+                    <Form.Item
+                        name="task_name"
+                        label="Task Name / Card Title"
+                        rules={[{ required: true, message: "Please enter task name" }]}
+                    >
+                        <Input placeholder="e.g. Design Landing Page Mockup" />
+                    </Form.Item>
+
+                    <Form.Item name="project_name" label="Project Name (Optional)">
+                        <Input placeholder="e.g. Website Redesign / General" />
+                    </Form.Item>
+
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                        <Form.Item name="priority" label="Priority" initialValue="medium">
+                            <Select options={PRIORITY_OPTIONS} />
+                        </Form.Item>
+
+                        <Form.Item name="due_date" label="Due Date">
+                            <DatePicker style={{ width: "100%" }} />
+                        </Form.Item>
+                    </div>
+
+                    <Form.Item
+                        name="reporter"
+                        label="Reporter (Admin / Team Lead)"
+                        rules={[{ required: true, message: "Please select a reporter" }]}
+                        extra="Choose the Admin or Team Lead who will review and track this task"
+                    >
+                        <Select
+                            placeholder="Select Reporter (TL or Admin)"
+                            options={reporters.map((r) => ({
+                                value: r.key,
+                                label: (
+                                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                                        <span>{r.name}</span>
+                                        <Tag color={r.type === "admin" ? "gold" : "purple"} style={{ margin: 0, fontSize: 10 }}>
+                                            {r.type === "admin" ? "Admin" : "Team Lead"}
+                                        </Tag>
+                                    </div>
+                                ),
+                            }))}
+                        />
+                    </Form.Item>
+
+                    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+                        <Button onClick={() => setCreateModalOpen(false)}>Cancel</Button>
+                        <Button
+                            type="primary"
+                            htmlType="submit"
+                            loading={createSubmitting}
+                            style={{ background: "var(--accent, #D14E9A)", borderColor: "var(--accent, #D14E9A)", fontWeight: 600 }}
+                        >
+                            Create Task
+                        </Button>
+                    </div>
+                </Form>
+            </Modal>
         </div>
     );
 }

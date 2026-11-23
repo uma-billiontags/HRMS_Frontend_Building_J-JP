@@ -13,7 +13,6 @@ interface AuthUser {
   email: string;
   role: UserRole;
   token: string;
-  isTL: boolean;   // NEW
 }
 
 interface AuthContextValue {
@@ -72,7 +71,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         email: me?.email ?? email,
         role: data.role,
         token: data.token,
-        isTL: me?.is_tl ?? false,
       };
 
       localStorage.setItem(STORAGE_KEY, JSON.stringify(authUser));

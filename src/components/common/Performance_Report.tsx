@@ -1,6 +1,6 @@
 // Performance_Report.tsx
 // Monthly Task Performance & Appraisal Consistency Tracker (Target: 200h / Month)
-// Supports Admin (filter any employee), TL (defaults to TL, can filter team members), and regular Employee.
+// Supports Admin (filter any employee) and regular Employee.
 
 import { useEffect, useState, useCallback } from "react";
 import { Table, Button, Select, Tooltip, Progress, Tag, message } from "antd";
@@ -144,7 +144,7 @@ interface PerformanceResponse {
     current_date: string;
     target_employee: TargetEmployee;
     employees: DropdownEmployee[];
-    is_tl: boolean;
+    is_tl?: boolean;
     is_admin: boolean;
     closed_months: ClosedMonthData[];
     summary: PerformanceSummary;
@@ -153,7 +153,6 @@ interface PerformanceResponse {
 
 interface PerformanceReportProps {
     role: "admin" | "employee";
-    isTL?: boolean;
 }
 
 function StatCard({
@@ -283,10 +282,9 @@ function csvEscape(v: string | number | null): string {
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
-export default function Performance_Report({ role, isTL }: Partial<PerformanceReportProps>) {
+export default function Performance_Report({ role }: Partial<PerformanceReportProps>) {
     const { user } = useAuth();
     const effectiveRole = role || user?.role || "employee";
-    const effectiveIsTL = isTL !== undefined ? isTL : (user?.isTL ?? false);
 
     const [data, setData] = useState<PerformanceResponse | null>(null);
     const [loading, setLoading] = useState<boolean>(true);
@@ -518,7 +516,7 @@ export default function Performance_Report({ role, isTL }: Partial<PerformanceRe
     ];
 
     const canFilterEmployees =
-        (effectiveRole === "admin" || effectiveIsTL || data?.is_tl || data?.is_admin) &&
+        (effectiveRole === "admin" || data?.is_admin) &&
         (data?.employees?.length ?? 0) > 0;
 
     const canCalculateAnnual = effectiveRole === "admin" || data?.is_admin;
@@ -554,7 +552,7 @@ export default function Performance_Report({ role, isTL }: Partial<PerformanceRe
                         />
                     </div>
 
-                    {/* Employee Selector for Admin and TL */}
+                    {/* Employee Selector for Admin */}
                     {canFilterEmployees && (
                         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                             <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>

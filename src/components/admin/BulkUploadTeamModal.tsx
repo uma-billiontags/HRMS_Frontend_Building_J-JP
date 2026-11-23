@@ -77,20 +77,12 @@ interface ExistingMember {
     department?: string;
 }
 
-interface TeamLead {
-    id: number;
-    employee_id?: string;
-    name: string;
-    email: string;
-}
-
 interface BulkUploadTeamModalProps {
     open: boolean;
     onClose: () => void;
     onSuccess: () => void;
     departments?: string[];
     existingMembers?: ExistingMember[];
-    teamLeads?: TeamLead[];
 }
 
 export default function BulkUploadTeamModal({
@@ -99,7 +91,6 @@ export default function BulkUploadTeamModal({
     onSuccess,
     departments: propDepartments = [],
     existingMembers: propExistingMembers = [],
-    teamLeads: propTeamLeads = [],
 }: BulkUploadTeamModalProps) {
     const [viewMode, setViewMode] = useState<"sheet" | "preview">("sheet");
     const [sheetRows, setSheetRows] = useState<SheetMemberRow[]>([]);
@@ -107,9 +98,8 @@ export default function BulkUploadTeamModal({
     const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
     const [uploading, setUploading] = useState(false);
 
-    // Dynamic departments and TLs fallback
+    // Dynamic departments and existing members fallback
     const [departmentsList, setDepartmentsList] = useState<string[]>(propDepartments);
-    const [tlList, setTlList] = useState<TeamLead[]>(propTeamLeads);
     const [existingList, setExistingList] = useState<ExistingMember[]>(propExistingMembers);
 
     // Modals for external data insertion
@@ -134,12 +124,6 @@ export default function BulkUploadTeamModal({
     }, [propDepartments, open]);
 
     useEffect(() => {
-        if (propTeamLeads && propTeamLeads.length > 0) {
-            setTlList(propTeamLeads);
-        }
-    }, [propTeamLeads]);
-
-    useEffect(() => {
         if (propExistingMembers && propExistingMembers.length > 0) {
             setExistingList(propExistingMembers);
         } else if (open) {
@@ -148,13 +132,6 @@ export default function BulkUploadTeamModal({
                 .then((data) => {
                     if (Array.isArray(data)) {
                         setExistingList(data);
-                        const tls = data.filter(
-                            (e: any) =>
-                                e.role &&
-                                (e.role.trim().toUpperCase() === "TL" ||
-                                    e.role.trim().toUpperCase() === "TEAM LEAD")
-                        );
-                        setTlList(tls);
                     }
                 })
                 .catch(() => {});
@@ -163,7 +140,7 @@ export default function BulkUploadTeamModal({
 
     // Initial dummy sample rows matching requested style
     const getInitialSampleRows = (): SheetMemberRow[] => {
-        const defaultDept = departmentsList[0] || "Tech";
+        const defaultDept = departmentsList[0] || "";
         return [
             {
                 key: `row-${Date.now()}-1`,
@@ -224,16 +201,7 @@ export default function BulkUploadTeamModal({
         setSheetRows((prev) =>
             prev.map((r) => {
                 if (r.key !== key) return r;
-                const updated = { ...r, [field]: value };
-
-                // If Role is set to TL, reporting_to must be Admin
-                if (field === "role") {
-                    const isTL = String(value).trim().toUpperCase() === "TL" || String(value).trim().toUpperCase() === "TEAM LEAD";
-                    if (isTL) {
-                        updated.reporting_to = "Admin";
-                    }
-                }
-                return updated;
+                return { ...r, [field]: value };
             })
         );
     };
@@ -272,8 +240,7 @@ export default function BulkUploadTeamModal({
             const email = (row.email || "").trim();
             const department = (row.department || "").trim();
             const role = (row.role || "Employee").trim();
-            const isTL = role.toUpperCase() === "TL" || role.toUpperCase() === "TEAM LEAD";
-            const reportingTo = isTL ? "Admin" : (row.reporting_to || "Admin").trim();
+            const reportingTo = "Admin";
             const password = (row.password || "").trim();
             const isActive = Boolean(row.is_active);
 
@@ -315,7 +282,7 @@ export default function BulkUploadTeamModal({
                 name,
                 email,
                 department,
-                role: isTL ? "TL" : role,
+                role,
                 reporting_to: reportingTo,
                 password: password || undefined,
                 is_active: isActive,
@@ -369,10 +336,8 @@ export default function BulkUploadTeamModal({
 
             const email = cleanCols[2] || "";
             const dept = cleanCols[3] || departmentsList[0] || "";
-            const rawRole = cleanCols[4] || "Employee";
-            const isTL = rawRole.trim().toUpperCase() === "TL" || rawRole.trim().toUpperCase() === "TEAM LEAD";
-            const role = isTL ? "TL" : rawRole;
-            const reportingTo = isTL ? "Admin" : (cleanCols[5] || "Admin");
+            const role = cleanCols[4] || "Employee";
+            const reportingTo = "Admin";
             const pwd = cleanCols[6] || "Welcome@123";
             const activeRaw = (cleanCols[7] || "true").toLowerCase();
             const isActive = !["false", "0", "no", "inactive"].includes(activeRaw);
@@ -440,10 +405,8 @@ export default function BulkUploadTeamModal({
                 const name = String(r["Full Name"] || r["Name"] || r["name"] || Object.values(r)[1] || "").trim();
                 const email = String(r["Email"] || r["email"] || Object.values(r)[2] || "").trim();
                 const dept = String(r["Department"] || r["department"] || Object.values(r)[3] || "").trim();
-                const rawRole = String(r["Role"] || r["role"] || Object.values(r)[4] || "Employee").trim();
-                const isTL = rawRole.toUpperCase() === "TL" || rawRole.toUpperCase() === "TEAM LEAD";
-                const role = isTL ? "TL" : rawRole;
-                const reportingTo = isTL ? "Admin" : String(r["Reporting To"] || r["reporting_to"] || Object.values(r)[5] || "Admin").trim();
+                const role = String(r["Role"] || r["role"] || Object.values(r)[4] || "Employee").trim();
+                const reportingTo = "Admin";
                 const pwd = String(r["Password"] || r["password"] || Object.values(r)[6] || "Welcome@123").trim();
                 const activeRaw = String(r["Is Active"] || r["is_active"] || r["Status"] || "true").toLowerCase();
                 const isActive = !["false", "0", "no", "inactive"].includes(activeRaw);
@@ -494,10 +457,8 @@ export default function BulkUploadTeamModal({
                     const name = String(row["Full Name"] || row["Name"] || row["name"] || "").trim();
                     const email = String(row["Email"] || row["email"] || "").trim();
                     const dept = String(row["Department"] || row["Dept"] || row["department"] || "").trim();
-                    const rawRole = String(row["Role"] || row["role"] || "Employee").trim();
-                    const isTL = rawRole.toUpperCase() === "TL" || rawRole.toUpperCase() === "TEAM LEAD";
-                    const role = isTL ? "TL" : rawRole;
-                    const reportingTo = isTL ? "Admin" : String(row["Reporting To"] || row["reporting_to"] || "Admin").trim();
+                    const role = String(row["Role"] || row["role"] || "Employee").trim();
+                    const reportingTo = "Admin";
                     const pwd = String(row["Password"] || row["password"] || "Welcome@123").trim();
                     const activeRaw = String(row["Is Active"] || row["Status"] || "true").toLowerCase();
                     const isActive = !["false", "0", "no", "inactive"].includes(activeRaw);
@@ -545,7 +506,7 @@ export default function BulkUploadTeamModal({
                 "TM-101",
                 "Priyanka Patel",
                 "priyanka.tl@company.com",
-                departmentsList[0] || "Tech",
+                departmentsList[0] || "",
                 "TL",
                 "Admin",
                 "Welcome@123",
@@ -555,7 +516,7 @@ export default function BulkUploadTeamModal({
                 "TM-102",
                 "Arun Kumar",
                 "arun.dev@company.com",
-                departmentsList[0] || "Tech",
+                departmentsList[0] || "",
                 "Employee",
                 "Priyanka Patel",
                 "Welcome@123",
@@ -639,33 +600,6 @@ export default function BulkUploadTeamModal({
     const validCount = parsedMembers.filter((m) => m.isValid).length;
     const invalidCount = parsedMembers.length - validCount;
 
-    // Reporting To options: "Admin" + all known TLs + TL rows currently in the sheet
-    const reportingOptions = useMemo(() => {
-        const opts = [{ value: "Admin", label: "👑 Direct to Admin" }];
-
-        // Add TLs from existing DB
-        tlList.forEach((tl) => {
-            opts.push({
-                value: tl.name,
-                label: `TL: ${tl.name} (${tl.email})`,
-            });
-        });
-
-        // Add any row in current sheet that has role "TL"
-        sheetRows.forEach((r) => {
-            if (r.name && (r.role.toUpperCase() === "TL" || r.role.toUpperCase() === "TEAM LEAD")) {
-                if (!opts.some((o) => o.value.toLowerCase() === r.name.toLowerCase())) {
-                    opts.push({
-                        value: r.name,
-                        label: `TL: ${r.name} (in sheet)`,
-                    });
-                }
-            }
-        });
-
-        return opts;
-    }, [tlList, sheetRows]);
-
     const departmentOptions = useMemo(
         () => departmentsList.map((d) => ({ value: d, label: d })),
         [departmentsList]
@@ -739,7 +673,7 @@ export default function BulkUploadTeamModal({
                               loading={uploading}
                               disabled={selectedRowKeys.length === 0}
                               onClick={handleConfirmCreate}
-                              style={{ background: "#1B3363", borderColor: "#1B3363", fontWeight: 600, height: 36 }}
+                              style={{ background: "var(--accent, #f43f5e)", borderColor: "var(--accent, #f43f5e)", fontWeight: 600, height: 36 }}
                           >
                               Create {selectedRowKeys.length} Team Members
                           </Button>,
@@ -955,30 +889,15 @@ export default function BulkUploadTeamModal({
                                     ),
                                     dataIndex: "reporting_to",
                                     width: 180,
-                                    render: (v, r) => {
-                                        const isTL = r.role.trim().toUpperCase() === "TL" || r.role.trim().toUpperCase() === "TEAM LEAD";
-                                        if (isTL) {
-                                            return (
-                                                <Tag
-                                                    icon={<CrownOutlined />}
-                                                    color="gold"
-                                                    style={{ fontWeight: 600, padding: "2px 8px", borderRadius: 4 }}
-                                                >
-                                                    Direct to Admin
-                                                </Tag>
-                                            );
-                                        }
-                                        return (
-                                            <Select
-                                                size="small"
-                                                value={v || "Admin"}
-                                                showSearch
-                                                onChange={(val) => handleUpdateRow(r.key, "reporting_to", val)}
-                                                style={{ width: "100%" }}
-                                                options={reportingOptions}
-                                            />
-                                        );
-                                    },
+                                    render: () => (
+                                        <Tag
+                                            icon={<CrownOutlined />}
+                                            color="purple"
+                                            style={{ fontWeight: 600, padding: "2px 8px", borderRadius: 4 }}
+                                        >
+                                            Direct to Admin
+                                        </Tag>
+                                    ),
                                 },
                                 {
                                     title: "Password",

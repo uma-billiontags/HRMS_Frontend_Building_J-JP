@@ -73,80 +73,24 @@ export default function Login() {
 
   return (
     <div className="login-page">
-      {/* ───────────────── LEFT PANEL ───────────────── */}
-      <div className="login-left-panel">
-        <div className="login-left-panel-overlay" />
-        <div className="login-left-content">
-          <div style={{ marginBottom: 36 }}>
-            <div className="login-logo-name" style={{ fontSize: 24, fontWeight: 800, color: "#fff", letterSpacing: "0.02em" }}>
-              HRMS
-            </div>
-            <div className="login-logo-sub" style={{ fontSize: 13, color: "rgba(255, 255, 255, 0.75)", marginTop: 4 }}>
-              Interactive team workspace
-            </div>
-          </div>
-
-          <h1 className="login-headline">
-            One workspace.
-            <br />
-            Every Task & Every Team.
-          </h1>
-
-          <p className="login-tagline">
-            Track tasks, manage your team, and see project progress —
-            all in one place, tailored to your role.
-          </p>
-
-          <div className="login-feature-grid">
-            <div className="login-feature-card">
-              <div className="login-feature-num">1</div>
-              <div>
-                <div className="login-feature-title">Admin dashboard</div>
-                <div className="login-feature-desc">
-                  Full task, team and progress overview.
-                </div>
-              </div>
-            </div>
-            <div className="login-feature-card">
-              <div className="login-feature-num">2</div>
-              <div>
-                <div className="login-feature-title">Role-based access</div>
-                <div className="login-feature-desc">
-                  Employees see only their own tasks.
-                </div>
-              </div>
-            </div>
-            <div className="login-feature-card">
-              <div className="login-feature-num">3</div>
-              <div>
-                <div className="login-feature-title">Task management</div>
-                <div className="login-feature-desc">
-                  Assign, update, and track task status.
-                </div>
-              </div>
-            </div>
-            <div className="login-feature-card">
-              <div className="login-feature-num">4</div>
-              <div>
-                <div className="login-feature-title">Live progress</div>
-                <div className="login-feature-desc">
-                  Deadlines, status, and activity at a glance.
-                </div>
-              </div>
-            </div>
-          </div>
+      {/* ───────────────── BRAND HEADER ───────────────── */}
+      <div className="login-brand-header">
+        <div className="login-brand-badge">
+          <div className="login-brand-icon">⚡</div>
+          <span className="login-brand-badge-text">HRMS Workspace</span>
         </div>
+        <h1 className="login-brand-title">Interactive Team Portal</h1>
+        <p className="login-brand-sub">Track tasks, attendance, and project workflows</p>
       </div>
 
-      {/* ───────────────── RIGHT PANEL (form) ───────────────── */}
-      <div className="login-right-panel">
-        <div className="login-card">
-          {!isForgot ? (
-            <>
-              <h2 className="login-card-title">Sign in to your dashboard</h2>
-              <p className="login-subtitle">
-                Enter your credentials to access your workspace.
-              </p>
+      {/* ───────────────── CENTERED CARD ───────────────── */}
+      <div className="login-card">
+        {!isForgot ? (
+          <>
+            <h2 className="login-card-title">Sign in to your dashboard</h2>
+            <p className="login-subtitle">
+              Enter your credentials to access your workspace.
+            </p>
 
               <form onSubmit={handleSubmit} className="login-form">
                 <div className="login-field">
@@ -194,7 +138,7 @@ export default function Login() {
                     style={{
                       background: "none",
                       border: "none",
-                      color: "var(--accent)",
+                      color: "#A72B73",
                       fontSize: "12px",
                       fontWeight: 600,
                       cursor: "pointer",
@@ -320,7 +264,10 @@ export default function Login() {
             </>
           )}
         </div>
+
+        <div className="login-footer-note">
+          Protected by HRMS Security • All Rights Reserved
+        </div>
       </div>
-    </div>
-  );
-}
+    );
+  }

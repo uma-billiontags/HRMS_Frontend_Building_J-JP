@@ -3,7 +3,6 @@ import { Link } from "react-router-dom";
 import { Button, message, Spin } from "antd";
 import { ArrowRightOutlined, PlayCircleOutlined, RocketOutlined, CoffeeOutlined, PauseCircleOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
-import { useAuth } from "../AuthContext"; // adjust path to match your project
 import WorkTimelineChart from "../common/WorkTimelineChart";
 import WeeklyTaskAllocationChart from "../common/WeeklyTaskAllocationChart";
 
@@ -122,8 +121,6 @@ function formatBreakTime(remainingSecs: number): string {
 }
 
 export default function Employee_Dashboard() {
-    const { user } = useAuth();
-    const isTL = user?.isTL ?? false;
     const [selectedMemberId, setSelectedMemberId] = useState<string | number>("");
     const [data, setData] = useState<ReportData | null>(null);
     const [loading, setLoading] = useState(true);   // ← renamed from _loading
@@ -377,7 +374,6 @@ export default function Employee_Dashboard() {
                 <div style={{ marginTop: 22 }}>
                     <WeeklyTaskAllocationChart
                         role="employee"
-                        isTL={isTL}
                         selectedEmployeeIdProp={selectedMemberId}
                         onEmployeeChange={setSelectedMemberId}
                     />
@@ -387,7 +383,6 @@ export default function Employee_Dashboard() {
                 <div style={{ marginTop: 22 }}>
                     <WorkTimelineChart
                         role="employee"
-                        isTL={isTL}
                         selectedEmployeeIdProp={selectedMemberId}
                         onEmployeeChange={setSelectedMemberId}
                     />

@@ -2,22 +2,20 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
     LayoutDashboard,
     ClipboardList,
-    ClipboardCheck,
-    CheckCircle2,
-    // CheckCircle,
-    XCircle,
-    // Clock,
+    // ClipboardCheck,
     History,
     BarChart3,
     LogOut,
     UsersRound,
-    CalendarDays, // <-- ADD THIS
     CalendarCheck,
-    FolderOpen,
-    AlarmClock,
+    // FolderOpen,
+    FolderKanban,
+    // AlarmClock,
     Mail,
     Inbox,
-    Send,
+    // Send,
+    RefreshCw,
+    Menu,
     // Award,
     type LucideIcon,
 } from "lucide-react";
@@ -39,62 +37,53 @@ interface NavGroup {
 const ADMIN_NAV: NavGroup[] = [
     {
         section: "OVERVIEW",
-        items: [{ label: "Dashboard", icon: LayoutDashboard, to: "/admin/dashboard" }],
-    },
-    {
-        section: "ATTENDANCE",
-        items: [{ label: "Attendance", icon: CalendarCheck, to: "/admin/attendance" }],
-    },
-    {
-        section: "TASKS",
         items: [
-            { label: "Assigned Tasks", icon: LayoutDashboard, to: "/admin/my_tasks" },
-            { label: "Upcoming Tasks", icon: CalendarDays, to: "/admin/my_upcoming_tasks" },
-            { label: "Submitted Tasks", icon: Send, to: "/admin/my_submitted_tasks" },
-            { label: "Completed Tasks", icon: CheckCircle2, to: "/admin/my_completed_tasks" },
+            { label: "Dashboard", icon: LayoutDashboard, to: "/admin/dashboard" },
+            { label: "Departments", icon: FolderKanban, to: "/admin/departments" },
         ],
     },
     {
-        section: "TEAM TASKS",
-        items: [
-            { label: "All Tasks", icon: ClipboardList, to: "/admin/all_tasks" },
-            { label: "Open Tasks", icon: FolderOpen, to: "/admin/open_tasks" },
-            { label: "Overdue Tasks", icon: AlarmClock, to: "/admin/overdue_tasks" },
-            { label: "Rework Tasks", icon: ClipboardList, to: "/admin/rework_tasks" },
-            { label: "Review Tasks", icon: ClipboardCheck, to: "/admin/review_tasks" },
-            { label: "Upcoming Scheduled", icon: CalendarDays, to: "/admin/upcoming_scheduled_tasks" }, // <-- ADD THIS
-            { label: "Completed Tasks", icon: CheckCircle2, to: "/admin/completed_tasks" },
-            { label: "Cancel Tasks", icon: XCircle, to: "/admin/cancel_tasks" },
-        ],
-    },
-    {
-        section: "REQUESTS",
-        items: [{ label: "Team Requests", icon: Inbox, to: "/admin/requests" }],
-    },
-    // {
-    //     section: "REQUESTS",
-    //     items: [
-    //         { label: "Pending Requests", icon: Clock, to: "/admin/pending_time_correction_requests" },
-    //         { label: "Approved Requests", icon: CheckCircle, to: "/admin/approved_requests" },
-    //         { label: "Rejected Requests", icon: XCircle, to: "/admin/rejected_requests" },
-    //     ],
-    // },
-    {
-        section: "TEAM ACCESS",
+        section: "MANAGEMENT",
         items: [
             { label: "Team Access", icon: UsersRound, to: "/admin/team_access" },
+            { label: "Attendance", icon: CalendarCheck, to: "/admin/attendance" },
+            { label: "Team Requests", icon: Inbox, to: "/admin/requests" },
         ],
     },
     {
         section: "INSIGHTS",
         items: [
             { label: "Reports", icon: BarChart3, to: "/admin/reports" },
-            // { label: "Performance", icon: Award, to: "/admin/performance" },
             { label: "Audit History", icon: History, to: "/admin/audit_history" },
         ],
     },
-
 ];
+
+// Preserved Previous Task Navs (kept for reference per user request):
+// const PRESERVED_ADMIN_TASKS_NAV: NavGroup[] = [
+//     {
+//         section: "TASKS",
+//         items: [
+//             { label: "Assigned Tasks", icon: LayoutDashboard, to: "/admin/my_tasks" },
+//             { label: "Upcoming Tasks", icon: CalendarDays, to: "/admin/my_upcoming_tasks" },
+//             { label: "Submitted Tasks", icon: Send, to: "/admin/my_submitted_tasks" },
+//             { label: "Completed Tasks", icon: CheckCircle2, to: "/admin/my_completed_tasks" },
+//         ],
+//     },
+//     {
+//         section: "TEAM TASKS",
+//         items: [
+//             { label: "All Tasks", icon: ClipboardList, to: "/admin/all_tasks" },
+//             { label: "Open Tasks", icon: FolderOpen, to: "/admin/open_tasks" },
+//             { label: "Overdue Tasks", icon: AlarmClock, to: "/admin/overdue_tasks" },
+//             { label: "Rework Tasks", icon: ClipboardList, to: "/admin/rework_tasks" },
+//             { label: "Review Tasks", icon: ClipboardCheck, to: "/admin/review_tasks" },
+//             { label: "Upcoming Scheduled", icon: CalendarDays, to: "/admin/upcoming_scheduled_tasks" },
+//             { label: "Completed Tasks", icon: CheckCircle2, to: "/admin/completed_tasks" },
+//             { label: "Cancel Tasks", icon: XCircle, to: "/admin/cancel_tasks" },
+//         ],
+//     },
+// ];
 
 const EMPLOYEE_NAV: NavGroup[] = [
     {
@@ -102,93 +91,45 @@ const EMPLOYEE_NAV: NavGroup[] = [
         items: [{ label: "Dashboard", icon: LayoutDashboard, to: "/employee/dashboard" }],
     },
     {
+        section: "TASKS",
+        items: [
+            { label: "Normal Tasks", icon: ClipboardList, to: "/employee/normal_tasks" },
+            { label: "Recurring Tasks", icon: RefreshCw, to: "/employee/recurring_tasks" },
+        ],
+    },
+    {
         section: "ATTENDANCE",
         items: [{ label: "Attendance", icon: CalendarCheck, to: "/employee/attendance" }],
     },
     {
-        section: "TASKS",
-        items: [
-            { label: "Assigned Tasks", icon: ClipboardList, to: "/employee/all_tasks" },
-            { label: "Upcoming Tasks", icon: CalendarDays, to: "/employee/my_upcoming_tasks" }, // <-- ADD THIS
-            { label: "Submitted Tasks", icon: Send, to: "/employee/submitted_tasks" },
-            { label: "Completed Tasks", icon: CheckCircle2, to: "/employee/completed_tasks" },
-        ],
-
-    },
-    {
         section: "REQUESTS",
-        items: [{ label: "Create / My Requests", icon: Mail, to: "/employee/requests" }],
+        items: [{ label: "Requests", icon: Mail, to: "/employee/requests" }],
     },
-    // {
-    //     section: "REQUESTS",
-    //     items: [
-    //         { label: "Approved Requests", icon: CheckCircle, to: "/employee/approved_requests" },
-    //         { label: "Rejected Requests", icon: XCircle, to: "/employee/rejected_requests" },
-    //     ],
-    // },
     {
         section: "INSIGHTS",
         items: [
             { label: "Reports", icon: BarChart3, to: "/employee/reports" },
-            // { label: "Performance", icon: Award, to: "/employee/performance" },
             { label: "Audit History", icon: History, to: "/employee/audit_history" },
         ],
     },
 ];
 
-const TL_NAV: NavGroup[] = [
-    { section: "OVERVIEW", items: [{ label: "Dashboard", icon: LayoutDashboard, to: "/employee/dashboard" }] },
-    {
-        section: "ATTENDANCE",
-        items: [{ label: "Attendance", icon: CalendarCheck, to: "/employee/attendance" }],
-    },
-    {
-        section: "TASKS",
-        items: [
-            { label: "Assigned Tasks", icon: ClipboardList, to: "/employee/all_tasks" },
-            { label: "Upcoming Tasks", icon: CalendarDays, to: "/employee/my_upcoming_tasks" }, // <-- ADD THIS
-            { label: "Submitted Tasks", icon: Send, to: "/employee/submitted_tasks" },
-            { label: "Completed Tasks", icon: CheckCircle2, to: "/employee/completed_tasks" },
-
-        ],
-    },
-    {
-        section: "TEAM TASKS",
-        items: [
-            { label: "Team Tasks", icon: UsersRound, to: "/employee/tl_tasks" },
-            { label: "Review Tasks", icon: CheckCircle2, to: "/employee/tl_review_tasks" },
-            { label: "Upcoming Scheduled", icon: CalendarDays, to: "/employee/upcoming_scheduled_tasks" }, // <-- ADD THISa
-            { label: "Team Completed Tasks", icon: CheckCircle2, to: "/employee/tl_completed_tasks" },
-
-        ],
-    },
-     {
-        section: "REQUESTS",
-        items: [{ label: "Create / My Requests", icon: Mail, to: "/employee/requests" }],
-    },
-    {
-        section: "INSIGHTS", items: [
-            { label: "Reports", icon: BarChart3, to: "/employee/reports" },
-            // { label: "Performance", icon: Award, to: "/employee/performance" },
-            { label: "Audit History", icon: History, to: "/employee/audit_history" },
-        ]
-    },
-];
 // ── Props ───────────────────────────────────────────────────────────────────
 
 interface SidebarProps {
     role: "admin" | "employee";
     userName: string;
-    isTL?: boolean;
+    collapsed?: boolean;
+    onToggle?: () => void;
 }
 
 // ── Component ───────────────────────────────────────────────────────────────
 
-export default function Sidebar({ role, userName, isTL = false }: SidebarProps) {
+export default function Sidebar({ role, userName, onToggle }: SidebarProps) {
     const location = useLocation();
     const navigate = useNavigate();
     const { logout } = useAuth();
-    const nav = role === "admin" ? ADMIN_NAV : isTL ? TL_NAV : EMPLOYEE_NAV;
+    const nav = role === "admin" ? ADMIN_NAV : EMPLOYEE_NAV;
 
     function handleLogout() {
         logout();
@@ -198,13 +139,37 @@ export default function Sidebar({ role, userName, isTL = false }: SidebarProps) 
     return (
         <aside className="db-sidebar">
             {/* Brand Header */}
-            <div className="db-logo" style={{ padding: "18px 20px 16px" }}>
-                <div style={{ fontSize: 18, fontWeight: 800, color: "var(--sb-text-bright)", letterSpacing: "0.03em" }}>
-                    HRMS
+            <div className="db-logo" style={{ padding: "16px 16px 14px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: "var(--sb-text-bright)", letterSpacing: "0.03em" }}>
+                        HRMS
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--sb-text-dim)", marginTop: 2 }}>
+                        Workspace
+                    </div>
                 </div>
-                <div style={{ fontSize: 11, color: "var(--sb-text-dim)", marginTop: 2 }}>
-                    Workspace
-                </div>
+                {onToggle && (
+                    <button
+                        type="button"
+                        onClick={onToggle}
+                        title="Collapse sidebar"
+                        aria-label="Collapse sidebar"
+                        style={{
+                            background: "transparent",
+                            border: "1px solid var(--sb-border, #f3e8ee)",
+                            borderRadius: 6,
+                            padding: "5px",
+                            cursor: "pointer",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            color: "var(--sb-text, #4B5563)",
+                            transition: "all 0.15s ease",
+                        }}
+                    >
+                        <Menu size={18} />
+                    </button>
+                )}
             </div>
 
             {/* Nav */}
@@ -243,7 +208,7 @@ export default function Sidebar({ role, userName, isTL = false }: SidebarProps) 
                     <div>
                         <div className="db-sidebar-uname">{userName}</div>
                         <div className="db-sidebar-urole">
-                            {role === "admin" ? "ADMINISTRATOR" : isTL ? "TEAM LEAD" : "EMPLOYEE"}
+                            {role === "admin" ? "ADMINISTRATOR" : "EMPLOYEE"}
                         </div>
                     </div>
                 </div>
