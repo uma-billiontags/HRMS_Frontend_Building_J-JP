@@ -1,6 +1,6 @@
 // App.tsx
-import { useState } from "react";
-import { BrowserRouter, Routes, Route, Navigate, Outlet } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation } from "react-router-dom";
 import { AuthProvider, useAuth } from "./components/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 import Login from "./components/Login";
@@ -47,9 +47,18 @@ import Header from "./components/common/Header";
 // Every admin page and every employee page renders inside this.
 function DashboardLayout({ role }: { role: "admin" | "employee" }) {
   const { user } = useAuth();
+  const location = useLocation();
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     return localStorage.getItem("hrms_sidebar_collapsed") === "true";
   });
+
+  useEffect(() => {
+    try {
+      if (location.pathname.toLowerCase().replace(/\/$/, "") !== "/admin/departments") {
+        sessionStorage.removeItem("admin-departments-board-view-v2");
+      }
+    } catch { /* Ignore storage restrictions; department navigation should still work. */ }
+  }, [location.pathname]);
 
   const toggleSidebar = () => {
     setCollapsed((prev) => {

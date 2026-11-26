@@ -153,14 +153,28 @@ export default function Departments_Admin() {
     const [searchQuery, setSearchQuery] = useState("");
 
     // Selected department view for drill-down into its projects
-    const [selectedDept, setSelectedDept] = useState<DepartmentData | null>(null);
-    const [selectedMode, setSelectedMode] = useState<"normal" | "recurring" | null>(null);
-    const [selectedProject, setSelectedProject] = useState<ProjectData | null>(null);
+    const [savedBoardView] = useState(() => {
+        try { return JSON.parse(sessionStorage.getItem("admin-departments-board-view-v2") || "{}"); }
+        catch { return {}; }
+    });
+    const [selectedDept, setSelectedDept] = useState<DepartmentData | null>(savedBoardView.department || null);
+    const [selectedMode, setSelectedMode] = useState<"normal" | "recurring" | null>(savedBoardView.mode || null);
+    const [selectedProject, setSelectedProject] = useState<ProjectData | null>(savedBoardView.project || null);
     const [projects, setProjects] = useState<ProjectData[]>([]);
     const [projectsLoading, setProjectsLoading] = useState(false);
     const [addDeptModalOpen, setAddDeptModalOpen] = useState(false);
     const [newDeptName, setNewDeptName] = useState("");
     const [savingDept, setSavingDept] = useState(false);
+
+    useEffect(() => {
+        try {
+            sessionStorage.setItem("admin-departments-board-view-v2", JSON.stringify({
+                department: selectedDept,
+                mode: selectedMode,
+                project: selectedProject,
+            }));
+        } catch { /* Keep the department workspace usable if session storage is unavailable. */ }
+    }, [selectedDept, selectedMode, selectedProject]);
 
     const handleSaveDepartment = async () => {
         const name = newDeptName.trim();
@@ -310,7 +324,7 @@ export default function Departments_Admin() {
     }
 
     return (
-        <div style={{ padding: "26px 32px", maxWidth: 1440, margin: "0 auto" }}>
+        <div style={{ padding: "0 8px 26px", width: "100%", margin: "-12px 0 0" }}>
             <style>{`
                 .trello-cards-grid {
                     display: grid;
@@ -375,10 +389,10 @@ export default function Departments_Admin() {
                     alignItems: "flex-start",
                     flexWrap: "wrap",
                     gap: 16,
-                    marginBottom: 24,
+                    marginBottom: selectedDept ? 24 : 16,
                 }}
             >
-                <div>
+                {selectedDept && <div>
                     <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                         {selectedDept && (
                             <Button
@@ -392,15 +406,18 @@ export default function Departments_Admin() {
                                     setSearchQuery("");
                                 }}
                                 style={{
+                                    height: 40,
+                                    paddingInline: 16,
                                     borderRadius: 8,
-                                    border: "1px solid #cbd5e1",
+                                    border: "1px solid #e2e8f0",
                                     fontWeight: 600,
+                                    color: "#D14E9A",
                                 }}
                             >
                                 Back
                             </Button>
                         )}
-                        <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0, color: "#0f172a", letterSpacing: "-0.02em" }}>
+                        <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0, color: "#6b7280", letterSpacing: "-0.02em" }}>
                             {selectedDept
                                 ? selectedMode
                                     ? `${selectedDept.name} - ${selectedMode === "normal" ? "Normal Projects" : "Recurring Projects"}`
@@ -424,17 +441,10 @@ export default function Departments_Admin() {
                                 : `${totalDepartmentsCount} Boards`}
                         </span>
                     </div>
-                    <p style={{ margin: "5px 0 0", color: "#64748b", fontSize: 13 }}>
-                        {selectedDept
-                            ? selectedMode
-                                ? `Showing belonging projects for ${selectedMode === "normal" ? "Normal Tasks" : "Recurring Tasks"} in ${selectedDept.name}.`
-                                : `Select whether to view Normal Tasks or Recurring Tasks under ${selectedDept.name}.`
-                            : "Select a department board to explore its projects and task workflows."}
-                    </p>
-                </div>
+                </div>}
 
                 {/* Search & Actions */}
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginLeft: "auto" }}>
                     <Input
                         prefix={<SearchOutlined style={{ color: "#94a3b8" }} />}
                         placeholder={selectedDept ? "Search projects..." : "Search departments..."}
@@ -449,9 +459,9 @@ export default function Departments_Admin() {
                         }}
                     />
                     <Button
-                        icon={<ReloadOutlined />}
+                        icon={<ReloadOutlined style={{ color: "#D14E9A" }} />}
                         onClick={selectedDept ? () => handleSelectDepartment(selectedDept) : fetchDepartments}
-                        style={{ height: 38, borderRadius: 10, borderColor: "#cbd5e1", fontWeight: 600 }}
+                        style={{ height: 40, borderRadius: 8, borderColor: "#e2e8f0", color: "#D14E9A", fontWeight: 600, background: "#fff" }}
                     >
                         Refresh
                     </Button>
@@ -542,15 +552,6 @@ export default function Departments_Admin() {
             ) : selectedDept && !selectedMode ? (
                 /* ── STEP 1 DRILL-DOWN: TWO SEPARATE BOXES (Normal vs Recurring) ── */
                 <div>
-                    <div style={{ marginBottom: 16 }}>
-                        <h2 style={{ fontSize: 18, fontWeight: 700, color: "#1e293b", margin: 0 }}>
-                            Select Workflow Type for {selectedDept.name}
-                        </h2>
-                        <p style={{ color: "#64748b", fontSize: 13, margin: "4px 0 0" }}>
-                            Choose whether to enter standard milestone project workflows or automated recurring routines.
-                        </p>
-                    </div>
-
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 370px))", gap: 18, maxWidth: 800 }}>
                         {/* Box 1: Normal Tasks & Projects (Compact) */}
                         <div
@@ -586,9 +587,6 @@ export default function Departments_Admin() {
                                 <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0, color: "#fff", display: "flex", alignItems: "center", gap: 8 }}>
                                     <span style={{ fontSize: 18 }}>📁</span> Normal Tasks
                                 </h2>
-                                <p style={{ margin: "4px 0 0", color: "rgba(255, 255, 255, 0.85)", fontSize: 11.5, lineHeight: 1.35 }}>
-                                    Standard milestone deliverables, client features, and ad-hoc task workflows.
-                                </p>
                             </div>
 
                             <div style={{ padding: "14px 18px", flex: 1, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
@@ -675,9 +673,6 @@ export default function Departments_Admin() {
                                 <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0, color: "#fff", display: "flex", alignItems: "center", gap: 8 }}>
                                     <span style={{ fontSize: 18 }}>🔁</span> Recurring Tasks
                                 </h2>
-                                <p style={{ margin: "4px 0 0", color: "rgba(255, 255, 255, 0.85)", fontSize: 11.5, lineHeight: 1.35 }}>
-                                    Automated recurring routines, daily code standups, periodic audits, and maintenance jobs.
-                                </p>
                             </div>
 
                             <div style={{ padding: "14px 18px", flex: 1, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
@@ -986,24 +981,20 @@ export default function Departments_Admin() {
                                                 display: "flex",
                                                 justifyContent: "space-between",
                                                 alignItems: "center",
-                                                marginBottom: 8,
+                                                gap: 12,
                                             }}
                                         >
-                                            <span
+                                            <h2
                                                 style={{
-                                                    fontSize: 11,
+                                                    fontSize: 17,
                                                     fontWeight: 700,
-                                                    letterSpacing: "0.08em",
-                                                    textTransform: "uppercase",
-                                                    background: "rgba(255, 255, 255, 0.18)",
-                                                    backdropFilter: "blur(6px)",
-                                                    border: "1px solid rgba(255, 255, 255, 0.22)",
-                                                    padding: "3px 10px",
-                                                    borderRadius: 12,
+                                                    margin: 0,
+                                                    color: "#fff",
+                                                    letterSpacing: "-0.01em",
                                                 }}
                                             >
-                                                {dept.prefix || "DEPT"}
-                                            </span>
+                                                {dept.name}
+                                            </h2>
                                             <Tooltip title={`${dept.members_count} team members`}>
                                                 <span
                                                     style={{
@@ -1023,90 +1014,10 @@ export default function Departments_Admin() {
                                             </Tooltip>
                                         </div>
 
-                                        <h2
-                                            style={{
-                                                fontSize: 19,
-                                                fontWeight: 700,
-                                                margin: 0,
-                                                color: "#fff",
-                                                letterSpacing: "-0.01em",
-                                            }}
-                                        >
-                                            {dept.name}
-                                        </h2>
                                     </div>
 
                                     {/* Card Body with Key Stats */}
                                     <div style={{ padding: "18px 22px 14px", flex: 1, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
-                                        {/* Projects and Tasks count chips */}
-                                        <div
-                                            style={{
-                                                display: "grid",
-                                                gridTemplateColumns: "1fr 1fr",
-                                                gap: 10,
-                                                marginBottom: 16,
-                                            }}
-                                        >
-                                            <div
-                                                style={{
-                                                    display: "flex",
-                                                    alignItems: "center",
-                                                    gap: 8,
-                                                    padding: "8px 10px",
-                                                    borderRadius: 8,
-                                                    background: "#f8fafc",
-                                                    border: "1px solid #edf2f7",
-                                                }}
-                                            >
-                                                <FolderOutlined style={{ color: palette.accent, fontSize: 15 }} />
-                                                <span style={{ fontSize: 13, color: "#475569" }}>
-                                                    <b style={{ color: "#0f172a" }}>{dept.projects_count}</b> Projects
-                                                </span>
-                                            </div>
-                                            <div
-                                                style={{
-                                                    display: "flex",
-                                                    alignItems: "center",
-                                                    gap: 8,
-                                                    padding: "8px 10px",
-                                                    borderRadius: 8,
-                                                    background: "#f8fafc",
-                                                    border: "1px solid #edf2f7",
-                                                }}
-                                            >
-                                                <AppstoreOutlined style={{ color: palette.accent, fontSize: 15 }} />
-                                                <span style={{ fontSize: 13, color: "#475569" }}>
-                                                    <b style={{ color: "#0f172a" }}>{dept.total_tasks}</b> Tasks
-                                                </span>
-                                            </div>
-                                        </div>
-
-                                        {/* Completion Progress Bar */}
-                                        <div style={{ marginBottom: 16 }}>
-                                            <div
-                                                style={{
-                                                    display: "flex",
-                                                    justifyContent: "space-between",
-                                                    alignItems: "center",
-                                                    fontSize: 12,
-                                                    color: "#64748b",
-                                                    marginBottom: 6,
-                                                }}
-                                            >
-                                                <span style={{ fontWeight: 500 }}>Overall Completion</span>
-                                                <span style={{ fontWeight: 700, color: palette.accent }}>
-                                                    {dept.completion_rate}%
-                                                </span>
-                                            </div>
-                                            <Progress
-                                                percent={dept.completion_rate}
-                                                showInfo={false}
-                                                strokeColor={palette.accent}
-                                                trailColor="#f1f5f9"
-                                                size={["100%", 7]}
-                                            />
-                                        </div>
-
                                         {/* Modern Status Chips Grid */}
                                         <div
                                             style={{

@@ -93,7 +93,7 @@ export default function PauseTaskModal({ open, task, onClose, onSuccess }: Props
             open={open}
             onCancel={handleClose}
             footer={null}
-            width={520}
+            width={700}
             centered
             destroyOnClose
             title={
@@ -181,7 +181,7 @@ export default function PauseTaskModal({ open, task, onClose, onSuccess }: Props
                             Resume Time Champ after ......
                         </div>
 
-                        <div style={{ display: "flex", justifyContent: "center", gap: 24, flexWrap: "wrap" }}>
+                        <div style={{ display: "flex", justifyContent: "center", gap: 32, flexWrap: "wrap" }}>
                             {/* 15 Minutes Card */}
                             <button
                                 type="button"
@@ -195,8 +195,8 @@ export default function PauseTaskModal({ open, task, onClose, onSuccess }: Props
                                     })
                                 }
                                 style={{
-                                    width: 170,
-                                    height: 160,
+                                    width: 230,
+                                    height: 216,
                                     background: "#c27827",
                                     border: "none",
                                     borderRadius: 14,
@@ -242,8 +242,8 @@ export default function PauseTaskModal({ open, task, onClose, onSuccess }: Props
                                     })
                                 }
                                 style={{
-                                    width: 170,
-                                    height: 160,
+                                    width: 230,
+                                    height: 216,
                                     background: "#c27827",
                                     border: "none",
                                     borderRadius: 14,

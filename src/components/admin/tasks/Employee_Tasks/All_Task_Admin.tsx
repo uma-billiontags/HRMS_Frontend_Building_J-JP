@@ -2192,7 +2192,7 @@ export default function All_Task_Admin() {
 
                         <Form.Item
 
-                            label="Allotted Time"
+                            label={<span style={{ fontWeight: 700, fontSize: 11.5, letterSpacing: "0.5px", textTransform: "uppercase" }}><span style={{ color: "#ef4444", marginRight: 4 }}>*</span>ALLOTTED TIME</span>}
 
                             required
 
@@ -2250,6 +2250,8 @@ export default function All_Task_Admin() {
 
                                         min={0}
 
+                                        max={999999}
+
                                         step={1}
 
                                         placeholder="0"
@@ -2298,7 +2300,7 @@ export default function All_Task_Admin() {
 
                             <Form.Item
 
-                                label="Start Date"
+                                label={<span style={{ fontWeight: 700, fontSize: 11.5, letterSpacing: "0.5px", textTransform: "uppercase" }}><span style={{ color: "#ef4444", marginRight: 4 }}>*</span>START DATE</span>}
 
                                 name="start_date"
 
@@ -2356,7 +2358,7 @@ export default function All_Task_Admin() {
 
                             <Form.Item
 
-                                label="Due Date"
+                                label={<span style={{ fontWeight: 700, fontSize: 11.5, letterSpacing: "0.5px", textTransform: "uppercase" }}><span style={{ color: "#ef4444", marginRight: 4 }}>*</span>DUE DATE</span>}
 
                                 name="due_date"
 
@@ -2364,13 +2366,13 @@ export default function All_Task_Admin() {
 
                             >
 
-                                <DatePicker style={{ width: "100%" }} format="DD MMM YYYY" />
+                                <DatePicker style={{ width: "100%" }} format="DD MMM YYYY" placeholder="Select date" />
 
                             </Form.Item>
 
                             <Form.Item
 
-                                label="Deadline Time"
+                                label={<span style={{ fontWeight: 700, fontSize: 11.5, letterSpacing: "0.5px", textTransform: "uppercase" }}>DEADLINE TIME</span>}
 
                                 name="due_time"
 

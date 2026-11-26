@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
-import { Table, Button, Input, Modal, Form, Tooltip, Select, message, Tag, Image, DatePicker } from "antd";
+import { Table, Button, Input, Modal, Form, Tooltip, Select, message, Tag, Image, DatePicker, TimePicker, InputNumber } from "antd";
 import {
     SearchOutlined, ReloadOutlined, PlayCircleOutlined, PauseCircleOutlined,
     CheckCircleOutlined, LinkOutlined, SortAscendingOutlined, SortDescendingOutlined,
@@ -286,14 +286,50 @@ export default function All_Task_Employee({
             .finally(() => setLoading(false));
     }, [scopeFilter, mode]);
 
+    const handleDurationChange = (hVal?: number | null, mVal?: number | null, baseDate?: dayjs.Dayjs | null) => {
+        const h = Number(hVal !== undefined ? hVal : (createForm.getFieldValue("allotted_hours") ?? 0));
+        const m = Number(mVal !== undefined ? mVal : (createForm.getFieldValue("allotted_minutes") ?? 0));
+        const totalMinutes = h * 60 + m;
+        const start = baseDate || createForm.getFieldValue("start_date") || dayjs();
+        if (totalMinutes > 0 && start) {
+            const target = start.add(totalMinutes, "minute");
+            createForm.setFieldsValue({
+                due_date: target,
+                due_time: target,
+            });
+        }
+    };
+
     const handleCreateTask = async (values: any) => {
+        const hours = Number(values.allotted_hours || 0);
+        const minutes = Number(values.allotted_minutes || 0);
+        const totalMinutes = hours * 60 + minutes;
+        if (totalMinutes <= 0) {
+            message.error("Please enter allotted time in hours or minutes.");
+            return;
+        }
+
+        if (!values.start_date) {
+            message.error("Please select a start date.");
+            return;
+        }
+        if (!values.due_date) {
+            message.error("Please select a due date.");
+            return;
+        }
+
         setCreateSubmitting(true);
         try {
             const payload = {
                 task_name: values.task_name.trim(),
                 project_name: values.project_name?.trim() || "",
                 priority: values.priority || "medium",
+                start_date: values.start_date ? dayjs(values.start_date).format("YYYY-MM-DD") : null,
                 due_date: values.due_date ? dayjs(values.due_date).format("YYYY-MM-DD") : null,
+                due_time: values.due_time ? (dayjs.isDayjs(values.due_time) ? values.due_time.format("HH:mm:ss") : values.due_time) : null,
+                allotted_hours: hours,
+                allotted_minutes: minutes,
+                allotted_time: Math.round((hours + minutes / 60.0) * 100) / 100,
                 reporter: values.reporter,
             };
 
@@ -313,8 +349,15 @@ export default function All_Task_Employee({
                 createForm.resetFields();
                 fetchTasks();
             } else {
-                const err = await res.json().catch(() => ({}));
-                message.error(err.detail || "Failed to create task");
+                const errText = await res.text();
+                let errDetail = "";
+                try {
+                    const errJson = JSON.parse(errText);
+                    errDetail = errJson.detail || errJson.message || "";
+                } catch {
+                    errDetail = errText;
+                }
+                message.error(errDetail || "Failed to create task");
             }
         } catch {
             message.error("Network error while creating task");
@@ -504,6 +547,22 @@ export default function All_Task_Employee({
             );
         }
         if (task.task_status === "in_progress") {
+            if (activeTaskId !== task.id) {
+                return (
+                    <Tooltip title={anotherTaskActive ? "Pause or submit your active task first" : "Resume work on this task"}>
+                        <Button
+                            size="small"
+                            loading={busy}
+                            disabled={anotherTaskActive}
+                            icon={<PlayCircleOutlined />}
+                            onClick={() => callTimerAction(task, "resume")}
+                            style={{ fontSize: 11, fontWeight: 600, borderRadius: 6, background: "#7c3aed", color: "#fff", border: "none" }}
+                        >
+                            Resume
+                        </Button>
+                    </Tooltip>
+                );
+            }
             return (
                 <div style={{ display: "flex", gap: 6 }}>
                     <Button
@@ -537,7 +596,7 @@ export default function All_Task_Employee({
                         <Button
                             size="small" loading={busy} disabled={anotherTaskActive}
                             icon={<PlayCircleOutlined />} onClick={() => callTimerAction(task, "resume")}
-                            style={{ fontSize: 11, fontWeight: 600, borderRadius: 6 }}
+                            style={{ fontSize: 11, fontWeight: 600, borderRadius: 6, background: "#7c3aed", color: "#fff", border: "none" }}
                         >
                             Resume
                         </Button>
@@ -769,6 +828,13 @@ export default function All_Task_Employee({
             dataIndex: "due_date",
             key: "due_date",
             width: 140,
+            sorter: (a: MyTask, b: MyTask) => {
+                const dueValue = (task: MyTask) => task.due_date
+                    ? dayjs(`${task.due_date} ${task.due_time || "23:59:59"}`).valueOf()
+                    : Number.MAX_SAFE_INTEGER;
+                return dueValue(a) - dueValue(b);
+            },
+            sortDirections: ["ascend", "descend"],
             render: (_: any, record: MyTask) => (
                 <div>
                     <div style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>
@@ -1091,35 +1157,107 @@ export default function All_Task_Employee({
                 <Form
                     form={createForm}
                     layout="vertical"
-                    initialValues={{ priority: "medium", reporter: reporters[0]?.key }}
+                    initialValues={{ priority: "medium", reporter: reporters[0]?.key, start_date: dayjs(), allotted_hours: 0, allotted_minutes: 0 }}
                     onFinish={handleCreateTask}
                     style={{ marginTop: 14 }}
                 >
                     <Form.Item
                         name="task_name"
-                        label="Task Name / Card Title"
+                        label={<span style={{ fontWeight: 700, fontSize: 11.5, letterSpacing: "0.5px", color: "#1e293b", textTransform: "uppercase" }}><span style={{ color: "#ef4444", marginRight: 4 }}>*</span>TASK NAME</span>}
                         rules={[{ required: true, message: "Please enter task name" }]}
                     >
                         <Input placeholder="e.g. Design Landing Page Mockup" />
                     </Form.Item>
 
-                    <Form.Item name="project_name" label="Project Name (Optional)">
+                    <Form.Item
+                        name="project_name"
+                        label={<span style={{ fontWeight: 700, fontSize: 11.5, letterSpacing: "0.5px", color: "#1e293b", textTransform: "uppercase" }}>PROJECT NAME (OPTIONAL)</span>}
+                    >
                         <Input placeholder="e.g. Website Redesign / General" />
                     </Form.Item>
 
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                        <Form.Item name="priority" label="Priority" initialValue="medium">
-                            <Select options={PRIORITY_OPTIONS} />
+                    <Form.Item
+                        name="priority"
+                        label={<span style={{ fontWeight: 700, fontSize: 11.5, letterSpacing: "0.5px", color: "#1e293b", textTransform: "uppercase" }}><span style={{ color: "#ef4444", marginRight: 4 }}>*</span>PRIORITY</span>}
+                        initialValue="medium"
+                    >
+                        <Select options={PRIORITY_OPTIONS} />
+                    </Form.Item>
+
+                    {/* ── SCREENSHOT 2: ALLOTTED TIME ── */}
+                    <div style={{ marginBottom: 16 }}>
+                        <div style={{ marginBottom: 6 }}>
+                            <span style={{ fontWeight: 700, fontSize: 11.5, letterSpacing: "0.5px", color: "#1e293b", textTransform: "uppercase" }}>
+                                <span style={{ color: "#ef4444", marginRight: 4 }}>*</span>ALLOTTED TIME
+                            </span>
+                        </div>
+                        <div style={{ display: "flex", gap: 12 }}>
+                            <Form.Item name="allotted_hours" noStyle>
+                                <InputNumber
+                                    min={0}
+                                    step={1}
+                                    placeholder="0"
+                                    addonAfter="hrs"
+                                    style={{ width: "50%" }}
+                                    onChange={(h) => handleDurationChange(h, createForm.getFieldValue("allotted_minutes"), createForm.getFieldValue("start_date"))}
+                                />
+                            </Form.Item>
+                            <Form.Item name="allotted_minutes" noStyle>
+                                <InputNumber
+                                    min={0}
+                                    max={59}
+                                    step={5}
+                                    placeholder="0"
+                                    addonAfter="mins"
+                                    style={{ width: "50%" }}
+                                    onChange={(m) => handleDurationChange(createForm.getFieldValue("allotted_hours"), m, createForm.getFieldValue("start_date"))}
+                                />
+                            </Form.Item>
+                        </div>
+                    </div>
+
+                    {/* ── SCREENSHOT 3: START DATE, DUE DATE, DEADLINE TIME ── */}
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
+                        <Form.Item
+                            name="start_date"
+                            label={<span style={{ fontWeight: 700, fontSize: 11.5, letterSpacing: "0.5px", color: "#1e293b", textTransform: "uppercase" }}><span style={{ color: "#ef4444", marginRight: 4 }}>*</span>START DATE</span>}
+                            rules={[{ required: true, message: "Required" }]}
+                        >
+                            <DatePicker
+                                format="DD MMM YYYY"
+                                style={{ width: "100%" }}
+                                onChange={(d) => handleDurationChange(createForm.getFieldValue("allotted_hours"), createForm.getFieldValue("allotted_minutes"), d)}
+                            />
                         </Form.Item>
 
-                        <Form.Item name="due_date" label="Due Date">
-                            <DatePicker style={{ width: "100%" }} />
+                        <Form.Item
+                            name="due_date"
+                            label={<span style={{ fontWeight: 700, fontSize: 11.5, letterSpacing: "0.5px", color: "#1e293b", textTransform: "uppercase" }}><span style={{ color: "#ef4444", marginRight: 4 }}>*</span>DUE DATE</span>}
+                            rules={[{ required: true, message: "Required" }]}
+                        >
+                            <DatePicker
+                                format="DD MMM YYYY"
+                                placeholder="Select date"
+                                style={{ width: "100%" }}
+                            />
+                        </Form.Item>
+
+                        <Form.Item
+                            name="due_time"
+                            label={<span style={{ fontWeight: 700, fontSize: 11.5, letterSpacing: "0.5px", color: "#1e293b", textTransform: "uppercase" }}>DEADLINE TIME</span>}
+                        >
+                            <TimePicker
+                                format="hh:mm A"
+                                use12Hours
+                                placeholder="e.g. 03:00 PM"
+                                style={{ width: "100%" }}
+                            />
                         </Form.Item>
                     </div>
 
                     <Form.Item
                         name="reporter"
-                        label="Reporter (Admin / Team Lead)"
+                        label={<span style={{ fontWeight: 700, fontSize: 11.5, letterSpacing: "0.5px", color: "#1e293b", textTransform: "uppercase" }}>REPORTER (ADMIN / TEAM LEAD)</span>}
                         rules={[{ required: true, message: "Please select a reporter" }]}
                         extra="Choose the Admin or Team Lead who will review and track this task"
                     >

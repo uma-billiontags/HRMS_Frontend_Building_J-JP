@@ -47,9 +47,9 @@ interface CompletedTask {
 const QUALITY_META: Record<string, { label: string; color: string; bg: string }> = {
     excellent: { label: "Excellent", color: "var(--green)", bg: "var(--green-bg)" },
     good: { label: "Good", color: "var(--green)", bg: "var(--green-bg)" },
-    needs_improvement: { label: "Needs Improvement", color: "var(--amber)", bg: "var(--amber-bg)" },
-    rework_needed: { label: "Rework Needed", color: "var(--red)", bg: "var(--red-bg)" },
-    rejected: { label: "Rejected", color: "var(--red)", bg: "var(--red-bg)" },
+    needs_improvement: { label: "Satisfactory", color: "var(--amber)", bg: "var(--amber-bg)" },
+    rework_needed: { label: "Below Expectations", color: "var(--amber)", bg: "var(--amber-bg)" },
+    rejected: { label: "Unsatisfactory", color: "var(--red)", bg: "var(--red-bg)" },
 };
 
 const STATUS_META: Record<TaskStatus, { label: string; color: string; bg: string }> = {

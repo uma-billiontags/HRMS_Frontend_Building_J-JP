@@ -45,9 +45,9 @@ interface ReviewTask {
 const QUALITY_OPTIONS = [
     { value: "excellent", label: "Excellent", rating: 5 },
     { value: "good", label: "Good", rating: 4 },
-    { value: "needs_improvement", label: "Needs Improvement", rating: 3 },
-    { value: "rework_needed", label: "Rework Needed", rating: 2 },
-    { value: "rejected", label: "Rejected", rating: 1 },
+    { value: "needs_improvement", label: "Satisfactory", rating: 3 },
+    { value: "rework_needed", label: "Below Expectations", rating: 2 },
+    { value: "rejected", label: "Unsatisfactory", rating: 1 },
 ];
 
 const STATUS_META: Record<ReviewStatus, { label: string; color: string; bg: string }> = {

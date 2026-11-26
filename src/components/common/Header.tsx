@@ -139,6 +139,11 @@ const ROUTE_CONFIGS: Record<string, HeaderConfig> = {
         subtitle: "Manage employee and admin login credentials",
         icon: <UsergroupAddOutlined />,
     },
+    "/admin/departments": {
+        title: "Departments",
+        subtitle: "Explore department boards, projects, and task workflows",
+        icon: <AppstoreOutlined />,
+    },
     "/admin/reports": {
         title: "Reports & Analytics",
         subtitle: "Org-wide task performance and time tracking insights",

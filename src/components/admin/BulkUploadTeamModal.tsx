@@ -77,12 +77,19 @@ interface ExistingMember {
     department?: string;
 }
 
+interface AdminItem {
+    id: number;
+    name: string;
+    email: string;
+}
+
 interface BulkUploadTeamModalProps {
     open: boolean;
     onClose: () => void;
     onSuccess: () => void;
     departments?: string[];
     existingMembers?: ExistingMember[];
+    admins?: AdminItem[];
 }
 
 export default function BulkUploadTeamModal({
@@ -91,6 +98,7 @@ export default function BulkUploadTeamModal({
     onSuccess,
     departments: propDepartments = [],
     existingMembers: propExistingMembers = [],
+    admins: propAdmins = [],
 }: BulkUploadTeamModalProps) {
     const [viewMode, setViewMode] = useState<"sheet" | "preview">("sheet");
     const [sheetRows, setSheetRows] = useState<SheetMemberRow[]>([]);
@@ -101,6 +109,7 @@ export default function BulkUploadTeamModal({
     // Dynamic departments and existing members fallback
     const [departmentsList, setDepartmentsList] = useState<string[]>(propDepartments);
     const [existingList, setExistingList] = useState<ExistingMember[]>(propExistingMembers);
+    const [adminsList, setAdminsList] = useState<AdminItem[]>(propAdmins);
 
     // Modals for external data insertion
     const [pasteModalOpen, setPasteModalOpen] = useState(false);
@@ -110,6 +119,19 @@ export default function BulkUploadTeamModal({
     const [fetchingUrl, setFetchingUrl] = useState(false);
 
     // Sync props or fetch if empty
+    useEffect(() => {
+        if (propAdmins && propAdmins.length > 0) {
+            setAdminsList(propAdmins);
+        } else if (open) {
+            fetch(`${BASE_URL}/api/auth/admins/`, { headers: authHeaders() })
+                .then((r) => (r.ok ? r.json() : []))
+                .then((data) => {
+                    if (Array.isArray(data)) setAdminsList(data);
+                })
+                .catch(() => {});
+        }
+    }, [propAdmins, open]);
+
     useEffect(() => {
         if (propDepartments && propDepartments.length > 0) {
             setDepartmentsList(propDepartments);
@@ -141,15 +163,17 @@ export default function BulkUploadTeamModal({
     // Initial dummy sample rows matching requested style
     const getInitialSampleRows = (): SheetMemberRow[] => {
         const defaultDept = departmentsList[0] || "";
+        const defaultAdmin = adminsList[0]?.name || "Divya";
+        const secondAdmin = adminsList[1]?.name || defaultAdmin;
         return [
             {
                 key: `row-${Date.now()}-1`,
                 employee_id: "TM-101",
                 name: "Priyanka Patel",
-                email: "priyanka.tl@company.com",
+                email: "priyanka.dev@company.com",
                 department: defaultDept,
-                role: "TL",
-                reporting_to: "Admin",
+                role: "Employee",
+                reporting_to: defaultAdmin,
                 password: "Welcome@123",
                 is_active: true,
             },
@@ -160,7 +184,7 @@ export default function BulkUploadTeamModal({
                 email: "arun.dev@company.com",
                 department: defaultDept,
                 role: "Employee",
-                reporting_to: "Priyanka Patel",
+                reporting_to: secondAdmin,
                 password: "Welcome@123",
                 is_active: true,
             },
@@ -182,6 +206,7 @@ export default function BulkUploadTeamModal({
     // ─────────────────────────────────────────────────────────────
     const handleAddRow = () => {
         const defaultDept = departmentsList[0] || "";
+        const defaultAdmin = adminsList[0]?.name || "Divya";
         const nextIdNumber = sheetRows.length + 101;
         const newRow: SheetMemberRow = {
             key: `row-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
@@ -190,7 +215,7 @@ export default function BulkUploadTeamModal({
             email: "",
             department: defaultDept,
             role: "Employee",
-            reporting_to: "Admin",
+            reporting_to: defaultAdmin,
             password: "Welcome@123",
             is_active: true,
         };
@@ -240,7 +265,7 @@ export default function BulkUploadTeamModal({
             const email = (row.email || "").trim();
             const department = (row.department || "").trim();
             const role = (row.role || "Employee").trim();
-            const reportingTo = "Admin";
+            const reportingTo = (row.reporting_to || "").trim() || (adminsList[0]?.name || "Admin");
             const password = (row.password || "").trim();
             const isActive = Boolean(row.is_active);
 
@@ -337,7 +362,7 @@ export default function BulkUploadTeamModal({
             const email = cleanCols[2] || "";
             const dept = cleanCols[3] || departmentsList[0] || "";
             const role = cleanCols[4] || "Employee";
-            const reportingTo = "Admin";
+            const reportingTo = cleanCols[5] || (adminsList[0]?.name || "Admin");
             const pwd = cleanCols[6] || "Welcome@123";
             const activeRaw = (cleanCols[7] || "true").toLowerCase();
             const isActive = !["false", "0", "no", "inactive"].includes(activeRaw);
@@ -406,7 +431,7 @@ export default function BulkUploadTeamModal({
                 const email = String(r["Email"] || r["email"] || Object.values(r)[2] || "").trim();
                 const dept = String(r["Department"] || r["department"] || Object.values(r)[3] || "").trim();
                 const role = String(r["Role"] || r["role"] || Object.values(r)[4] || "Employee").trim();
-                const reportingTo = "Admin";
+                const reportingTo = String(r["Reporting To"] || r["reporting_to"] || Object.values(r)[5] || "").trim() || (adminsList[0]?.name || "Admin");
                 const pwd = String(r["Password"] || r["password"] || Object.values(r)[6] || "Welcome@123").trim();
                 const activeRaw = String(r["Is Active"] || r["is_active"] || r["Status"] || "true").toLowerCase();
                 const isActive = !["false", "0", "no", "inactive"].includes(activeRaw);
@@ -458,7 +483,7 @@ export default function BulkUploadTeamModal({
                     const email = String(row["Email"] || row["email"] || "").trim();
                     const dept = String(row["Department"] || row["Dept"] || row["department"] || "").trim();
                     const role = String(row["Role"] || row["role"] || "Employee").trim();
-                    const reportingTo = "Admin";
+                    const reportingTo = String(row["Reporting To"] || row["reporting_to"] || "").trim() || (adminsList[0]?.name || "Admin");
                     const pwd = String(row["Password"] || row["password"] || "Welcome@123").trim();
                     const activeRaw = String(row["Is Active"] || row["Status"] || "true").toLowerCase();
                     const isActive = !["false", "0", "no", "inactive"].includes(activeRaw);
@@ -884,19 +909,22 @@ export default function BulkUploadTeamModal({
                                 {
                                     title: (
                                         <span>
-                                            Reporting To
+                                            Reporting To <span style={{ color: "#DC2626" }}>*</span>
                                         </span>
                                     ),
                                     dataIndex: "reporting_to",
-                                    width: 180,
-                                    render: () => (
-                                        <Tag
-                                            icon={<CrownOutlined />}
-                                            color="purple"
-                                            style={{ fontWeight: 600, padding: "2px 8px", borderRadius: 4 }}
-                                        >
-                                            Direct to Admin
-                                        </Tag>
+                                    width: 190,
+                                    render: (v, r) => (
+                                        <Select
+                                            size="small"
+                                            value={v || (adminsList[0]?.name || "Admin")}
+                                            onChange={(val) => handleUpdateRow(r.key, "reporting_to", val)}
+                                            style={{ width: "100%" }}
+                                            options={adminsList.map((a) => ({
+                                                value: a.name,
+                                                label: `👑 Admin: ${a.name}`,
+                                            }))}
+                                        />
                                     ),
                                 },
                                 {
@@ -1073,14 +1101,11 @@ export default function BulkUploadTeamModal({
                                 dataIndex: "reporting_to",
                                 key: "reporting_to",
                                 width: 160,
-                                render: (v) =>
-                                    v.toLowerCase().includes("admin") ? (
-                                        <Tag icon={<CrownOutlined />} color="gold" style={{ fontWeight: 600 }}>
-                                            Direct to Admin
-                                        </Tag>
-                                    ) : (
-                                        <Tag color="cyan">{v}</Tag>
-                                    ),
+                                render: (v: string) => (
+                                    <Tag icon={<CrownOutlined />} color="purple" style={{ fontWeight: 600 }}>
+                                        {v && v.toLowerCase() !== "admin" ? `Admin: ${v}` : "Direct to Admin"}
+                                    </Tag>
+                                ),
                             },
                             {
                                 title: "ACCOUNT",

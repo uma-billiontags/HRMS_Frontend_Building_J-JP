@@ -16,7 +16,7 @@ import {
     // Send,
     RefreshCw,
     Menu,
-    // Award,
+    Award,
     type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "./AuthContext";
@@ -54,6 +54,7 @@ const ADMIN_NAV: NavGroup[] = [
         section: "INSIGHTS",
         items: [
             { label: "Reports", icon: BarChart3, to: "/admin/reports" },
+            { label: "Performance", icon: Award, to: "/admin/performance" },
             { label: "Audit History", icon: History, to: "/admin/audit_history" },
         ],
     },
@@ -109,6 +110,7 @@ const EMPLOYEE_NAV: NavGroup[] = [
         section: "INSIGHTS",
         items: [
             { label: "Reports", icon: BarChart3, to: "/employee/reports" },
+            { label: "Performance", icon: Award, to: "/employee/performance" },
             { label: "Audit History", icon: History, to: "/employee/audit_history" },
         ],
     },

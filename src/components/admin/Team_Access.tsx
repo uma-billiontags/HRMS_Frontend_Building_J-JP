@@ -29,6 +29,9 @@ interface EmployeeCredential {
     password?: string;
     department: string;
     role: string;
+    belong_to_admin?: number | null;
+    belong_to_admin_name?: string | null;
+    belong_to_admin_email?: string | null;
     belong_to_tl?: number | null;
     belong_to_tl_name?: string | null;
     is_active: boolean;
@@ -140,8 +143,6 @@ export default function Team_Access() {
             .catch(() => message.error("Failed to load departments"));
     }, []);
 
-    useEffect(() => { fetchUsers(); fetchDepartments(); }, [fetchUsers, fetchDepartments]);
-
     // ── Fetch — Admins ────────────────────────────────────────────────────
     const fetchAdmins = useCallback(() => {
         setAdminsLoading(true);
@@ -152,10 +153,11 @@ export default function Team_Access() {
             .finally(() => setAdminsLoading(false));
     }, []);
 
-    // Lazy-load admins the first time the Admin tab is opened.
     useEffect(() => {
-        if (activeTab === "admin" && admins.length === 0) fetchAdmins();
-    }, [activeTab, admins.length, fetchAdmins]);
+        fetchUsers();
+        fetchDepartments();
+        fetchAdmins();
+    }, [fetchUsers, fetchDepartments, fetchAdmins]);
 
     const totalUsers = users.length;
     const activeUsers = users.filter((u) => u.is_active).length;
@@ -168,7 +170,8 @@ export default function Team_Access() {
     const openAdd = () => {
         setEditing(null);
         form.resetFields();
-        form.setFieldsValue({ is_active: true, belong_to_tl: "ADMIN" });
+        const defaultAdmin = admins.length > 0 ? admins[0].id : undefined;
+        form.setFieldsValue({ is_active: true, belong_to_admin: defaultAdmin });
         setModalOpen(true);
     };
 
@@ -180,7 +183,7 @@ export default function Team_Access() {
             email: record.email,
             department: record.department || undefined,
             role: record.role,
-            belong_to_tl: "ADMIN",
+            belong_to_admin: record.belong_to_admin || (admins.length > 0 ? admins[0].id : undefined),
             is_active: record.is_active,
             password: record.password || "",
         });
@@ -199,13 +202,17 @@ export default function Team_Access() {
         setSaving(true);
         const isEdit = !!editing;
 
+        const adminVal = values.belong_to_admin;
+        const belong_to_admin = adminVal && adminVal !== "ADMIN" ? Number(adminVal) : (admins[0]?.id || null);
+
         const payload: Record<string, unknown> = {
             employee_id: values.employee_id,
             name: values.name,
             email: values.email,
             department: values.department || "",
             role: values.role || "",
-            belong_to_tl: null, // Direct to Admin
+            belong_to_admin: belong_to_admin,
+            belong_to_tl: null,
             is_active: values.is_active,
         };
         if (values.password) payload.password = values.password;
@@ -465,14 +472,17 @@ export default function Team_Access() {
         {
             title: "Reporting To",
             key: "reporting_to",
-            render: () => (
-                <span style={{
-                    fontSize: 11, fontWeight: 600, color: "var(--purple)", background: "var(--purple-bg)",
-                    border: "1px solid rgba(139, 92, 246, 0.3)", padding: "2px 9px", borderRadius: 6, whiteSpace: "nowrap",
-                }}>
-                    👑 Direct to Admin
-                </span>
-            ),
+            render: (_: any, record: EmployeeCredential) => {
+                const adminName = record.belong_to_admin_name || (admins.find((a) => a.id === record.belong_to_admin)?.name) || admins[0]?.name;
+                return (
+                    <span style={{
+                        fontSize: 11, fontWeight: 600, color: "var(--purple)", background: "var(--purple-bg)",
+                        border: "1px solid rgba(139, 92, 246, 0.3)", padding: "2px 9px", borderRadius: 6, whiteSpace: "nowrap",
+                    }}>
+                        👑 Admin: {adminName || "Admin"}
+                    </span>
+                );
+            },
         },
         {
             title: "Password",
@@ -844,20 +854,18 @@ export default function Team_Access() {
                     <div className="db-form-row">
                         <Form.Item
                             label="Reporting To"
-                            name="belong_to_tl"
-                            tooltip="Team members report directly to Admin"
+                            name="belong_to_admin"
+                            tooltip="Select the Admin this team member reports to"
+                            rules={[{ required: true, message: "Please select an admin" }]}
                         >
                             <Select
-                                placeholder="Select Reporting To"
-                                defaultValue="ADMIN"
+                                placeholder="Select Reporting Admin"
                                 optionFilterProp="label"
-                                options={[
-                                    { value: "ADMIN", label: "👑 Admin (Direct Report)" },
-                                    ...admins.map((a) => ({
-                                        value: `admin_${a.id}`,
-                                        label: `👑 Admin: ${a.name}`,
-                                    })),
-                                ]}
+                                showSearch
+                                options={admins.map((a) => ({
+                                    value: a.id,
+                                    label: `👑 Admin: ${a.name} (${a.email})`,
+                                }))}
                             />
                         </Form.Item>
 
@@ -955,9 +963,11 @@ export default function Team_Access() {
                 onSuccess={() => {
                     fetchUsers();
                     fetchDepartments();
+                    fetchAdmins();
                 }}
                 departments={departmentOptions}
                 existingMembers={users}
+                admins={admins}
             />
         </div>
     );

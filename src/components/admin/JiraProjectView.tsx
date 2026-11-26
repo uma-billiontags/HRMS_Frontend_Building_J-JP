@@ -1,5 +1,6 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { Fragment, useState, useEffect, useMemo, useRef } from "react";
 import { useAuth } from "../AuthContext";
+import PauseTaskModal from "../employee/tasks/PauseTaskModal";
 import {
     Input,
     Button,
@@ -9,6 +10,10 @@ import {
     Modal,
     Select,
     DatePicker,
+    TimePicker,
+    InputNumber,
+    Form,
+    Checkbox,
     message,
     Progress,
     Calendar,
@@ -24,10 +29,7 @@ import {
     PlusOutlined,
     FilterOutlined,
     ShareAltOutlined,
-    ThunderboltOutlined,
     LayoutOutlined,
-    FullscreenOutlined,
-    FullscreenExitOutlined,
     MoreOutlined,
     CheckOutlined,
     DownOutlined,
@@ -37,7 +39,6 @@ import {
     AppstoreOutlined,
     LineChartOutlined,
     FileTextOutlined,
-    FormOutlined,
     CalendarOutlined,
     TableOutlined,
     CloseOutlined,
@@ -51,8 +52,22 @@ import {
     UploadOutlined,
     EditOutlined,
     DownloadOutlined,
+    EyeOutlined,
 } from "@ant-design/icons";
 import dayjs from "dayjs";
+import {
+    Bar,
+    BarChart,
+    CartesianGrid,
+    Cell,
+    Legend,
+    Pie,
+    PieChart,
+    ResponsiveContainer,
+    Tooltip as ChartTooltip,
+    XAxis,
+    YAxis,
+} from "recharts";
 
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 
@@ -67,6 +82,12 @@ function authHeaders(): HeadersInit {
     }
 }
 
+const getAttachmentUrl = (url?: string) => {
+    if (!url) return "#";
+    if (url.startsWith("http://") || url.startsWith("https://")) return url;
+    return `${BASE_URL}${url.startsWith("/") ? "" : "/"}${url}`;
+};
+
 // ── Interfaces ──────────────────────────────────────────────────────────────
 export interface TaskAttachmentItem {
     id: number;
@@ -74,6 +95,9 @@ export interface TaskAttachmentItem {
     name?: string;
     size?: number;
     uploaded_at?: string;
+    uploaded_by?: number | null;
+    uploaded_by_admin?: number | null;
+    is_creation_attachment?: boolean;
 }
 
 export interface TaskCommentItem {
@@ -93,13 +117,22 @@ export interface JiraTask {
     department: string;
     department_name?: string;
     assigned_to: number | null;
+    assigned_to_admin?: number | null;
     assigned_to_name: string | null;
     assigned_by_name: string | null;
     assigned_by_admin?: number | null;
     assigned_by_employee?: number | null;
+    created_by_admin?: number | null;
+    created_by_employee?: number | null;
     reporter_key?: string | null;
     priority: "low" | "medium" | "high" | "critical" | string;
     task_status: string;
+    task_sheet_link?: string;
+    employee_remarks?: string;
+    quality_of_task?: string;
+    rating?: number | null;
+    admin_remarks?: string;
+    reviewed_date?: string | null;
     start_date?: string | null;
     assigned_date?: string | null;
     due_date?: string | null;
@@ -107,6 +140,7 @@ export interface JiraTask {
     allotted_time?: string | number | null;
     total_time_taken?: string | number;
     remaining_or_over_time?: string | number;
+    recurring_source?: number | null;
     rework_count?: number;
     is_recurring?: boolean;
     attachments?: TaskAttachmentItem[];
@@ -116,6 +150,39 @@ export interface EmployeeOption {
     id: number;
     name: string;
     department: string;
+}
+
+interface RecurringDefinition {
+    id: number;
+    task_name: string;
+    project_name: string;
+    task_details: string;
+    assigned_to: number | null;
+    assigned_to_admin: number | null;
+    assigned_to_name: string | null;
+    priority: string;
+    allotted_time: number;
+    start_date: string;
+    end_date: string | null;
+    weekdays: number[];
+    excluded_dates: string[];
+    is_active: boolean;
+}
+
+const WEEKDAY_OPTIONS = [
+    { value: 0, label: "Mon" }, { value: 1, label: "Tue" }, { value: 2, label: "Wed" },
+    { value: 3, label: "Thu" }, { value: 4, label: "Fri" }, { value: 5, label: "Sat" }, { value: 6, label: "Sun" },
+];
+
+function formatDuration(value: string | number | null | undefined): string {
+    if (value === null || value === undefined || value === "") return "—";
+    const totalMinutes = Math.round(Number(value) * 60);
+    if (!Number.isFinite(totalMinutes)) return "—";
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    if (hours && minutes) return `${hours}h ${minutes}m`;
+    if (hours) return `${hours}h`;
+    return `${minutes}m`;
 }
 
 interface JiraProjectViewProps {
@@ -135,7 +202,7 @@ interface JiraProjectViewProps {
         prefix?: string;
     };
     mode?: "normal" | "recurring" | null;
-    initialTab?: "trello" | "list" | "board" | "summary" | "timeline" | "calendar" | "backlog" | "docs";
+    initialTab?: "trello" | "list" | "submitted" | "review" | "completed" | "board" | "summary" | "timeline" | "calendar" | "backlog";
     onBack?: () => void;
     userRole?: "admin" | "employee";
     customTitle?: string;
@@ -165,8 +232,7 @@ function getAvatarColor(name: string) {
 function getInitials(name: string) {
     if (!name) return "??";
     const parts = name.trim().split(/\s+/);
-    if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
-    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    return (parts[0]?.[0] || "?").toUpperCase();
 }
 
 // ── Jira Status Pill Configurations ─────────────────────────────────────────
@@ -189,6 +255,14 @@ const STATUS_CONFIGS: Record<string, StatusMeta> = {
     on_hold: { label: "On Hold", key: "on_hold", bg: "#f1f5f9", text: "#64748b", border: "#cbd5e1" },
     cancelled: { label: "Cancelled", key: "cancelled", bg: "#fee2e2", text: "#991b1b", border: "#fca5a5" },
 };
+
+const REVIEW_QUALITY_OPTIONS = [
+    { value: "excellent", label: "Excellent", rating: 5 },
+    { value: "good", label: "Good", rating: 4 },
+    { value: "needs_improvement", label: "Satisfactory", rating: 3 },
+    { value: "rework_needed", label: "Below Expectations", rating: 2 },
+    { value: "rejected", label: "Unsatisfactory", rating: 1 },
+];
 
 function normalizeStatus(raw: string): StatusMeta {
     return STATUS_CONFIGS[raw] || {
@@ -264,24 +338,36 @@ export default function JiraProjectView({ project, department, mode, initialTab,
     const canEditTask = (task?: JiraTask | null) => {
         if (!task) return false;
         if (userRole === "admin" || user?.role === "admin") return true;
-        if (myId && task.assigned_to === myId) return true;
-        if (user?.name && task.assigned_by_name && task.assigned_by_name.trim().toLowerCase() === user.name.trim().toLowerCase()) return true;
-        if (user?.name && task.assigned_to_name && task.assigned_to_name.trim().toLowerCase() === user.name.trim().toLowerCase()) return true;
-        return false;
+        return !!myId && task.created_by_employee === myId;
     };
 
     const [attachmentCategory, setAttachmentCategory] = useState<"All" | "Images" | "Documents">("All");
 
     const [tasks, setTasks] = useState<JiraTask[]>([]);
+    const [activeTimerTaskId, setActiveTimerTaskId] = useState<number | null>(null);
     const [employees, setEmployees] = useState<EmployeeOption[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState("");
-    const [activeTab, setActiveTab] = useState<"trello" | "list" | "board" | "summary" | "timeline" | "calendar" | "backlog" | "docs">(
-        initialTab || (mode === "normal" ? "trello" : "list")
-    );
+    const activeTabStorageKey = `jira-active-tab:${mode || "all"}:${department.name}:${project.project_name || "general"}`;
+    const [activeTab, setActiveTab] = useState<"trello" | "list" | "submitted" | "review" | "completed" | "board" | "summary" | "timeline" | "calendar" | "backlog">(() => {
+        const tabs = ["trello", "list", "submitted", "review", "completed", "board", "summary", "timeline", "calendar", "backlog"];
+        try {
+            const savedTab = sessionStorage.getItem(activeTabStorageKey);
+            if (savedTab && tabs.includes(savedTab)) return savedTab as "trello" | "list" | "submitted" | "review" | "completed" | "board" | "summary" | "timeline" | "calendar" | "backlog";
+        } catch { /* Use the route default if session storage is unavailable. */ }
+        return initialTab || (mode === "normal" ? "trello" : "list");
+    });
+    useEffect(() => {
+        try { sessionStorage.setItem(activeTabStorageKey, activeTab); }
+        catch { /* Keep the workspace usable if session storage is unavailable. */ }
+    }, [activeTabStorageKey, activeTab]);
+    const isAdminUser = user?.role ? user.role === "admin" : userRole === "admin";
     const [filterAssignee, setFilterAssignee] = useState<string | null>(null);
     const [filterPriority, setFilterPriority] = useState<string | null>(null);
     const [filterStatus, setFilterStatus] = useState<string | null>(null);
+    const [dueSortDirection, setDueSortDirection] = useState<"asc" | "desc">("asc");
+    const [adminSortBy, setAdminSortBy] = useState<"created" | "due" | "days">("created");
+    const [summaryAssignee, setSummaryAssignee] = useState<number | null>(null);
     const [groupBy, setGroupBy] = useState<"none" | "status" | "assignee" | "priority">("none");
 
     // Trello board states
@@ -303,8 +389,19 @@ export default function JiraProjectView({ project, department, mode, initialTab,
     const [reporters, setReporters] = useState<{ id: number; name: string; type: "admin" | "tl"; role: string; label: string; key: string }[]>([]);
     const [inlinePriority, setInlinePriority] = useState<string>("medium");
     const [inlineDueDate, setInlineDueDate] = useState<string | null>(null);
+    const [inlineStartDate, setInlineStartDate] = useState<string | null>(dayjs().format("YYYY-MM-DD"));
+    const [inlineDueTime, setInlineDueTime] = useState<string | null>(null);
+    const [inlineAllottedHours, setInlineAllottedHours] = useState<number>(0);
+    const [inlineAllottedMinutes, setInlineAllottedMinutes] = useState<number>(0);
     const [createLoading, setCreateLoading] = useState(false);
     const inlineInputRef = useRef<any>(null);
+
+    // Full Create Task Modal state (Screenshots 2 & 3)
+    const [createTaskModalOpen, setCreateTaskModalOpen] = useState(false);
+    const [createTaskLoading, setCreateTaskLoading] = useState(false);
+    const [createTaskForm] = Form.useForm();
+    const [startDate, setStartDate] = useState<dayjs.Dayjs | null>(dayjs());
+    const [recurringWeekdays, setRecurringWeekdays] = useState<number[]>([0, 1, 2, 3, 4, 5]);
 
     // Full Jira Issue Modal Dialog (Screenshots 2, 3, 4)
     const [selectedTask, setSelectedTask] = useState<JiraTask | null>(null);
@@ -317,20 +414,39 @@ export default function JiraProjectView({ project, department, mode, initialTab,
     const [commentText, setCommentText] = useState("");
     const [commentsList, setCommentsList] = useState<TaskCommentItem[]>([]);
     const [commentsLoading, setCommentsLoading] = useState(false);
+    const [scheduleDefinition, setScheduleDefinition] = useState<RecurringDefinition | null>(null);
+    const [scheduleLoading, setScheduleLoading] = useState(false);
+    const [scheduleSaving, setScheduleSaving] = useState(false);
 
     // Timer actions state
     const [timerBusyTaskId, setTimerBusyTaskId] = useState<number | null>(null);
     const [pauseModalOpen, setPauseModalOpen] = useState(false);
     const [pauseTarget, setPauseTarget] = useState<JiraTask | null>(null);
-    const [pauseType, setPauseType] = useState<"break" | "another_reason">("break");
-    const [pauseOption, setPauseOption] = useState("15_mins");
-    const [pauseReason, setPauseReason] = useState("");
 
     const [submitModalOpen, setSubmitModalOpen] = useState(false);
     const [submitTarget, setSubmitTarget] = useState<JiraTask | null>(null);
     const [submitSheetLink, setSubmitSheetLink] = useState("");
     const [submitRemarks, setSubmitRemarks] = useState("");
     const [submitFiles, setSubmitFiles] = useState<any[]>([]);
+    const [existingSubmitAttachments, setExistingSubmitAttachments] = useState<TaskAttachmentItem[]>([]);
+    const [deletedSubmitAttachmentIds, setDeletedSubmitAttachmentIds] = useState<number[]>([]);
+
+    const [reviewTarget, setReviewTarget] = useState<JiraTask | null>(null);
+    const [approveReviewOpen, setApproveReviewOpen] = useState(false);
+    const [approveReviewForm] = Form.useForm();
+    const [approveReviewLoading, setApproveReviewLoading] = useState(false);
+    const [reworkReviewOpen, setReworkReviewOpen] = useState(false);
+    const [reworkReviewForm] = Form.useForm();
+    const [reworkReviewLoading, setReworkReviewLoading] = useState(false);
+    const [reviewBusyTaskId, setReviewBusyTaskId] = useState<number | null>(null);
+    const [previewAttachment, setPreviewAttachment] = useState<{
+        url: string;
+        name: string;
+        mimeType: string;
+        taskId: number;
+        attachmentId: number;
+        file: string;
+    } | null>(null);
 
     // AI modal
     const [aiModalOpen, setAiModalOpen] = useState(false);
@@ -338,8 +454,121 @@ export default function JiraProjectView({ project, department, mode, initialTab,
     const [aiResponse, setAiResponse] = useState<string | null>(null);
     const [aiThinking, setAiThinking] = useState(false);
 
-    // Fullscreen toggle
-    const [isFullscreen, setIsFullscreen] = useState(false);
+    // Multi-attachment upload & forced download
+    const attachmentInputRef = useRef<HTMLInputElement>(null);
+    const [uploadingAttachment, setUploadingAttachment] = useState(false);
+
+    const downloadAttachmentFile = async (fileUrl: string, fileName: string, attId?: number, taskId?: number) => {
+        try {
+            const attachmentTaskId = taskId ?? selectedTask?.id;
+            const urlToFetch = attId && attachmentTaskId
+                ? `${BASE_URL}/api/tasks/${attachmentTaskId}/attachments/${attId}/download/`
+                : fileUrl;
+            const res = await fetch(urlToFetch, { headers: { ...authHeaders() } });
+            if (!res.ok) throw new Error("Fetch failed");
+            const blob = await res.blob();
+            const blobUrl = window.URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = blobUrl;
+            link.download = fileName || "attachment";
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.setTimeout(() => window.URL.revokeObjectURL(blobUrl), 1000);
+        } catch {
+            message.error("Could not download this attachment. Please try again.");
+        }
+    };
+
+    const previewAttachmentFile = async (attId: number, taskId: number) => {
+        try {
+            const res = await fetch(`${BASE_URL}/api/tasks/${taskId}/attachments/${attId}/download/`, {
+                headers: { ...authHeaders() },
+            });
+            if (!res.ok) throw new Error("Preview fetch failed");
+            const blob = await res.blob();
+            const attachment = (tasks.find((task) => task.id === taskId)?.attachments || []).find((item) => item.id === attId);
+            if (previewAttachment?.url) window.URL.revokeObjectURL(previewAttachment.url);
+            setPreviewAttachment({
+                url: window.URL.createObjectURL(blob),
+                name: attachment?.name || "Attachment",
+                mimeType: blob.type,
+                taskId,
+                attachmentId: attId,
+                file: attachment?.file || "",
+            });
+        } catch {
+            message.error("Could not preview this attachment. You can download it instead.");
+        }
+    };
+
+    const closeAttachmentPreview = () => {
+        if (previewAttachment?.url) window.URL.revokeObjectURL(previewAttachment.url);
+        setPreviewAttachment(null);
+    };
+
+    const handleAttachmentUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const files = e.target.files;
+        if (!files || files.length === 0 || !selectedTask) return;
+
+        const fileList = Array.from(files);
+        const videoExts = [".mp4", ".mov", ".avi", ".mkv", ".wmv", ".flv", ".webm", ".m4v", ".3gp"];
+        const invalidVideos = fileList.filter((f) => {
+            const ext = f.name.substring(f.name.lastIndexOf(".")).toLowerCase();
+            return videoExts.includes(ext);
+        });
+
+        if (invalidVideos.length > 0) {
+            message.error("Video files are not allowed. Only images, docx, ppt, pdf, and excel files are supported.");
+            if (attachmentInputRef.current) attachmentInputRef.current.value = "";
+            return;
+        }
+
+        setUploadingAttachment(true);
+        const formData = new FormData();
+        fileList.forEach((file) => {
+            formData.append("attachments", file, file.name);
+        });
+
+        try {
+            const res = await fetch(`${BASE_URL}/api/tasks/${selectedTask.id}/attachments/`, {
+                method: "POST",
+                headers: { ...authHeaders() },
+                body: formData,
+            });
+
+            if (res.ok) {
+                const atts = await res.json();
+                setSelectedTask({ ...selectedTask, attachments: atts });
+                message.success(
+                    fileList.length > 1
+                        ? `${fileList.length} attachments uploaded successfully`
+                        : "Attachment uploaded successfully"
+                );
+                fetchTasks();
+            } else {
+                const errText = await res.text();
+                let errDetail = "";
+                try {
+                    const errJson = JSON.parse(errText);
+                    errDetail = errJson.detail || errJson.message || "";
+                } catch {
+                    const match = errText.match(/<pre class="exception_value">([\s\S]*?)<\/pre>/i) || errText.match(/<title>([\s\S]*?)<\/title>/i);
+                    if (match) {
+                        errDetail = match[1].replace(/&#x27;/g, "'").replace(/<[^>]+>/g, "").trim();
+                    } else {
+                        errDetail = `Upload failed (${res.status} ${res.statusText})`;
+                    }
+                }
+                message.error(errDetail || "Failed to upload attachments");
+            }
+        } catch {
+            message.error("Network error uploading attachments");
+        } finally {
+            setUploadingAttachment(false);
+            if (attachmentInputRef.current) attachmentInputRef.current.value = "";
+        }
+    };
 
     // Fetch department projects for Trello board columns
     const fetchDeptProjects = async () => {
@@ -427,10 +656,12 @@ export default function JiraProjectView({ project, department, mode, initialTab,
         setLoading(true);
         try {
             const modeParam = mode ? `&mode=${mode}` : "";
+            const bucket = activeTab === "review" ? "review" : activeTab === "submitted" ? "submitted" : activeTab === "completed" ? "completed" : activeTab === "backlog" ? "backlog" : activeTab === "list" ? "active" : "all";
+            const bucketParam = `&bucket=${bucket}`;
             const projParam = project?.project_name ? `project_name=${encodeURIComponent(project.project_name)}&` : "";
             const url = `${BASE_URL}/api/tasks/project_tasks/?${projParam}department=${encodeURIComponent(
                 department.name
-            )}${modeParam}`;
+            )}${modeParam}${bucketParam}`;
             const res = await fetch(url, { headers: authHeaders() });
             if (res.ok) {
                 const data = await res.json();
@@ -445,7 +676,14 @@ export default function JiraProjectView({ project, department, mode, initialTab,
                         const matchDept = !t.department || t.department.toLowerCase() === department.name.toLowerCase();
                         const matchProj = (t.project_name || "").toLowerCase() === project.project_name.toLowerCase();
                         const matchMode = !mode || (mode === "recurring" ? t.is_recurring : !t.is_recurring);
-                        return matchDept && matchProj && matchMode;
+                        const isEmployee = userRole === "employee" || user?.role === "employee";
+                        const matchAssignee = !isEmployee || (myId ? t.assigned_to === myId : t.assigned_to_name === user?.name);
+                        const matchBucket = bucket === "all"
+                            || (bucket === "active" && !["submitted", "under_review", "resubmitted", "completed", "cancelled"].includes(t.task_status))
+                            || ((bucket === "submitted" || bucket === "review") && ["submitted", "under_review", "resubmitted"].includes(t.task_status))
+                            || (bucket === "completed" && t.task_status === "completed")
+                            || (bucket === "backlog" && t.assigned_to == null && t.assigned_to_admin == null);
+                        return matchDept && matchProj && matchMode && matchAssignee && matchBucket;
                     });
                     setTasks(filtered);
                 }
@@ -496,9 +734,26 @@ export default function JiraProjectView({ project, department, mode, initialTab,
 
     useEffect(() => {
         fetchTasks();
+    }, [project.project_name, department.name, mode, activeTab]);
+
+    useEffect(() => {
+        const fetchActiveTimer = async () => {
+            try {
+                const res = await fetch(`${BASE_URL}/api/tasks/my_active_session/`, { headers: authHeaders() });
+                if (!res.ok) return;
+                const data = await res.json();
+                setActiveTimerTaskId(data?.active && data?.task ? Number(data.task) : null);
+            } catch {
+                // Timer controls remain protected by the backend if this request fails.
+            }
+        };
+        fetchActiveTimer();
+    }, []);
+
+    useEffect(() => {
         fetchEmployees();
         fetchReporters();
-    }, [project.project_name, department.name, mode]);
+    }, [department.name]);
 
     useEffect(() => {
         if (isCreatingInline && inlineInputRef.current) {
@@ -511,10 +766,41 @@ export default function JiraProjectView({ project, department, mode, initialTab,
         setSelectedTask(task);
         setTaskTitleValue(task.task_name || "");
         setTaskDescValue(task.task_details || "");
+        setScheduleDefinition(null);
         setEditingTitle(false);
         setEditingDesc(false);
         setIssueModalOpen(true);
         fetchComments(task.id);
+        if (task.recurring_source && isAdminUser) {
+            setScheduleLoading(true);
+            fetch(`${BASE_URL}/api/tasks/recurring/${task.recurring_source}/`, { headers: authHeaders() })
+                .then(async (response) => {
+                    if (!response.ok) throw new Error("Could not load recurring schedule");
+                    setScheduleDefinition(await response.json());
+                })
+                .catch(() => message.error("Could not load recurring schedule"))
+                .finally(() => setScheduleLoading(false));
+        }
+    };
+
+    const updateRecurringSchedule = async (patch: Record<string, unknown>) => {
+        if (!scheduleDefinition) return;
+        setScheduleSaving(true);
+        try {
+            const response = await fetch(`${BASE_URL}/api/tasks/recurring/${scheduleDefinition.id}/`, {
+                method: "PATCH",
+                headers: { ...authHeaders(), "Content-Type": "application/json" },
+                body: JSON.stringify(patch),
+            });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(result.detail || "Failed to update recurring schedule");
+            setScheduleDefinition(result);
+            fetchTasks();
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "Failed to update recurring schedule");
+        } finally {
+            setScheduleSaving(false);
+        }
     };
 
     // Fetch comments for issue
@@ -568,7 +854,11 @@ export default function JiraProjectView({ project, department, mode, initialTab,
             });
             if (res.ok) {
                 const updated = await res.json();
+                setActiveTimerTaskId(task.id);
                 setTasks((prev) => prev.map((t) => (t.id === taskId ? updated : t)));
+                if (activeTab === "backlog" && (updated.assigned_to != null || updated.assigned_to_admin != null)) {
+                    fetchTasks();
+                }
                 if (selectedTask && selectedTask.id === taskId) {
                     setSelectedTask(updated);
                 }
@@ -624,36 +914,6 @@ export default function JiraProjectView({ project, department, mode, initialTab,
         }
     };
 
-    const handleConfirmPause = async () => {
-        if (!pauseTarget) return;
-        setTimerBusyTaskId(pauseTarget.id);
-        try {
-            const res = await fetch(`${BASE_URL}/api/tasks/${pauseTarget.id}/pause/`, {
-                method: "POST",
-                headers: { ...authHeaders(), "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    pause_type: pauseType,
-                    break_option: pauseOption,
-                    reason: pauseReason || (pauseOption === "15_mins" ? "15 Mins Refreshment" : "30 Mins Lunch Break"),
-                }),
-            });
-            if (res.ok) {
-                const updated = await res.json();
-                setTasks((prev) => prev.map((t) => (t.id === pauseTarget.id ? updated : t)));
-                if (selectedTask && selectedTask.id === pauseTarget.id) setSelectedTask(updated);
-                message.success(`Task ${pauseTarget.sub_task_id || pauseTarget.task_id} paused`);
-                setPauseModalOpen(false);
-            } else {
-                const err = await res.json().catch(() => ({}));
-                message.error(err.detail || "Failed to pause task");
-            }
-        } catch {
-            message.error("Network error pausing task");
-        } finally {
-            setTimerBusyTaskId(null);
-        }
-    };
-
     const handleResumeTimer = async (task: JiraTask) => {
         setTimerBusyTaskId(task.id);
         try {
@@ -663,6 +923,7 @@ export default function JiraProjectView({ project, department, mode, initialTab,
             });
             if (res.ok) {
                 const updated = await res.json();
+                setActiveTimerTaskId(task.id);
                 setTasks((prev) => prev.map((t) => (t.id === task.id ? updated : t)));
                 if (selectedTask && selectedTask.id === task.id) setSelectedTask(updated);
                 message.success(`Timer resumed for ${task.sub_task_id || task.task_id}`);
@@ -677,6 +938,16 @@ export default function JiraProjectView({ project, department, mode, initialTab,
         }
     };
 
+    const openSubmitModal = (task: JiraTask, resubmitting = false) => {
+        setSubmitTarget(task);
+        setSubmitSheetLink(resubmitting ? task.task_sheet_link || "" : "");
+        setSubmitRemarks(resubmitting ? task.employee_remarks || "" : "");
+        setSubmitFiles([]);
+        setExistingSubmitAttachments(resubmitting ? task.attachments || [] : []);
+        setDeletedSubmitAttachmentIds([]);
+        setSubmitModalOpen(true);
+    };
+
     const handleConfirmSubmit = async () => {
         if (!submitTarget) return;
         setTimerBusyTaskId(submitTarget.id);
@@ -684,6 +955,7 @@ export default function JiraProjectView({ project, department, mode, initialTab,
             const formData = new FormData();
             formData.append("task_sheet_link", submitSheetLink.trim());
             formData.append("employee_remarks", submitRemarks.trim());
+            formData.append("delete_attachment_ids", JSON.stringify(deletedSubmitAttachmentIds));
             submitFiles.forEach((file) => {
                 if (file.originFileObj) {
                     formData.append("attachments", file.originFileObj);
@@ -696,9 +968,12 @@ export default function JiraProjectView({ project, department, mode, initialTab,
                 body: formData,
             });
             if (res.ok) {
-                message.success(`Task ${submitTarget.sub_task_id || submitTarget.task_id} submitted for review!`);
+                setActiveTimerTaskId(null);
+                message.success(`${["submitted", "under_review", "resubmitted"].includes(submitTarget.task_status) ? "Task resubmitted" : "Task submitted"} ${submitTarget.sub_task_id || submitTarget.task_id} for review!`);
                 setSubmitModalOpen(false);
                 setSubmitFiles([]);
+                setExistingSubmitAttachments([]);
+                setDeletedSubmitAttachmentIds([]);
                 fetchTasks();
             } else {
                 const err = await res.json().catch(() => ({}));
@@ -711,6 +986,228 @@ export default function JiraProjectView({ project, department, mode, initialTab,
         }
     };
 
+    const prepareTaskForReview = async (task: JiraTask) => {
+        if (task.task_status === "under_review") return true;
+        if (!["submitted", "resubmitted"].includes(task.task_status)) {
+            message.error("This task is no longer waiting for review.");
+            return false;
+        }
+        setReviewBusyTaskId(task.id);
+        try {
+            const res = await fetch(`${BASE_URL}/api/tasks/${task.id}/review/start/`, {
+                method: "POST",
+                headers: { ...authHeaders() },
+            });
+            const updated = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                message.error(updated.detail || "Could not start reviewing this task.");
+                fetchTasks();
+                return false;
+            }
+            setTasks((current) => current.map((item) => item.id === task.id ? updated : item));
+            return true;
+        } catch {
+            message.error("Network error while starting the review.");
+            return false;
+        } finally {
+            setReviewBusyTaskId(null);
+        }
+    };
+
+    const openApproveReview = async (task: JiraTask) => {
+        if (!(await prepareTaskForReview(task))) return;
+        approveReviewForm.resetFields();
+        setReviewTarget(task);
+        setApproveReviewOpen(true);
+    };
+
+    const openReworkReview = async (task: JiraTask) => {
+        if (!(await prepareTaskForReview(task))) return;
+        reworkReviewForm.resetFields();
+        setReviewTarget(task);
+        setReworkReviewOpen(true);
+    };
+
+    const handleApproveReviewedTask = async () => {
+        if (!reviewTarget) return;
+        let values: any;
+        try {
+            values = await approveReviewForm.validateFields();
+        } catch {
+            return;
+        }
+        const rating = REVIEW_QUALITY_OPTIONS.find((option) => option.value === values.quality_of_task)?.rating ?? 1;
+        setApproveReviewLoading(true);
+        try {
+            const res = await fetch(`${BASE_URL}/api/tasks/${reviewTarget.id}/review/approve/`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", ...authHeaders() },
+                body: JSON.stringify({
+                    quality_of_task: values.quality_of_task,
+                    rating,
+                    admin_remarks: values.admin_remarks || "",
+                }),
+            });
+            const responseData = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                message.error(responseData.detail || "Failed to approve task.");
+                return;
+            }
+            message.success("Task approved and marked completed.");
+            setApproveReviewOpen(false);
+            setReviewTarget(null);
+            fetchTasks();
+        } catch {
+            message.error("Network error while approving task.");
+        } finally {
+            setApproveReviewLoading(false);
+        }
+    };
+
+    const handleRequestTaskRework = async () => {
+        if (!reviewTarget) return;
+        let values: any;
+        try {
+            values = await reworkReviewForm.validateFields();
+        } catch {
+            return;
+        }
+        setReworkReviewLoading(true);
+        try {
+            const res = await fetch(`${BASE_URL}/api/tasks/${reviewTarget.id}/review/rework/`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", ...authHeaders() },
+                body: JSON.stringify({ admin_remarks: values.admin_remarks }),
+            });
+            const responseData = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                message.error(responseData.detail || "Failed to request rework.");
+                return;
+            }
+            message.success("Task sent back for rework.");
+            setReworkReviewOpen(false);
+            setReviewTarget(null);
+            fetchTasks();
+        } catch {
+            message.error("Network error while requesting rework.");
+        } finally {
+            setReworkReviewLoading(false);
+        }
+    };
+
+    // Helper to calculate target due date and time from start date + duration (Screenshots 2 & 3)
+    const handleDurationChange = (hVal?: number | null, mVal?: number | null, baseDate?: dayjs.Dayjs | null) => {
+        const h = Number(hVal !== undefined ? hVal : (createTaskForm.getFieldValue("allotted_hours") ?? 0));
+        const m = Number(mVal !== undefined ? mVal : (createTaskForm.getFieldValue("allotted_minutes") ?? 0));
+        const totalMinutes = h * 60 + m;
+        const start = baseDate || createTaskForm.getFieldValue("start_date") || startDate || dayjs();
+        if (totalMinutes > 0 && start) {
+            const target = start.add(totalMinutes, "minute");
+            createTaskForm.setFieldsValue({
+                due_date: target,
+                due_time: target,
+            });
+        }
+    };
+
+    // Full Create Task Handler (Screenshots 2 & 3)
+    const handleCreateTaskSubmit = async (values: any) => {
+        const hours = Number(values.allotted_hours || 0);
+        const minutes = Number(values.allotted_minutes || 0);
+        const totalMinutes = hours * 60 + minutes;
+        if (totalMinutes <= 0) {
+            message.error("Please enter allotted time in hours or minutes.");
+            return;
+        }
+
+        const isRecurring = mode === "recurring";
+        if (isRecurring && recurringWeekdays.length === 0) {
+            message.error("Select at least one repeat day.");
+            return;
+        }
+        if (isRecurring && !values.recurring_start_date) {
+            message.error("Please select a recurring start date.");
+            return;
+        }
+        if (!isRecurring && !values.start_date) {
+            message.error("Please select a start date.");
+            return;
+        }
+        if (!isRecurring && !values.due_date) {
+            message.error("Please select a due date.");
+            return;
+        }
+
+        setCreateTaskLoading(true);
+        try {
+            const isEmployee = userRole === "employee" || user?.role === "employee";
+            const assigneeVal = isEmployee ? myId : values.assigned_to;
+            const payload: any = {
+                task_name: values.task_name?.trim(),
+                task_details: values.task_details?.trim() || "",
+                project_name: values.project_name?.trim() || project?.project_name || "",
+                department: department.name,
+                priority: values.priority || "medium",
+                allotted_hours: hours,
+                allotted_minutes: minutes,
+                allotted_time: Math.round((hours + minutes / 60.0) * 100) / 100,
+                reporter: values.reporter || null,
+            };
+
+            const requestUrl = isRecurring
+                ? `${BASE_URL}/api/tasks/recurring/create/`
+                : `${BASE_URL}/api/tasks/quick_create/`;
+            if (isRecurring) {
+                payload.start_date = values.recurring_start_date.format("YYYY-MM-DD");
+                payload.end_date = values.recurring_end_date ? values.recurring_end_date.format("YYYY-MM-DD") : null;
+                payload.weekdays = recurringWeekdays;
+            } else {
+                payload.start_date = values.start_date.format("YYYY-MM-DD");
+                payload.due_date = values.due_date.format("YYYY-MM-DD");
+                payload.due_time = values.due_time ? (dayjs.isDayjs(values.due_time) ? values.due_time.format("HH:mm:ss") : values.due_time) : null;
+            }
+
+            if (assigneeVal) {
+                if (typeof assigneeVal === "string" && assigneeVal.startsWith("admin_")) {
+                    payload.assigned_to_admin = parseInt(assigneeVal.replace("admin_", ""), 10);
+                } else {
+                    payload.assigned_to = assigneeVal;
+                }
+            }
+
+            const res = await fetch(requestUrl, {
+                method: "POST",
+                headers: { ...authHeaders(), "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+            });
+
+            if (res.ok) {
+                const newTask = await res.json();
+                message.success(isRecurring ? "Recurring task scheduled successfully!" : `Task ${newTask.sub_task_id || newTask.task_id} created successfully!`);
+                setCreateTaskModalOpen(false);
+                createTaskForm.resetFields();
+                setRecurringWeekdays([0, 1, 2, 3, 4, 5]);
+                setStartDate(dayjs());
+                fetchTasks();
+            } else {
+                const errText = await res.text();
+                let errDetail = "";
+                try {
+                    const errJson = JSON.parse(errText);
+                    errDetail = errJson.detail || errJson.message || "";
+                } catch {
+                    errDetail = errText;
+                }
+                message.error(errDetail || "Failed to create task");
+            }
+        } catch (err) {
+            console.error("Task creation failed:", err);
+            message.error("Network error while creating task");
+        } finally {
+            setCreateTaskLoading(false);
+        }
+    };
+
     // Quick Inline Create
     const handleQuickCreate = async () => {
         const title = inlineTaskName.trim();
@@ -719,31 +1216,64 @@ export default function JiraProjectView({ project, department, mode, initialTab,
             return;
         }
 
+        const totalMinutes = inlineAllottedHours * 60 + inlineAllottedMinutes;
+        const allotted = totalMinutes > 0 ? Math.round((inlineAllottedHours + inlineAllottedMinutes / 60.0) * 100) / 100 : 1.0;
+
         setCreateLoading(true);
         try {
-            const isEmployee = userRole === "employee" || user?.role === "employee";
-            const assigneeId = isEmployee ? myId : (inlineAssignee || null);
-            const res = await fetch(`${BASE_URL}/api/tasks/quick_create/`, {
+            const assigneeId = inlineAssignee || null;
+            const isRecurring = mode === "recurring";
+            const requestUrl = isRecurring
+                ? `${BASE_URL}/api/tasks/recurring/create/`
+                : `${BASE_URL}/api/tasks/quick_create/`;
+            const payload: Record<string, unknown> = {
+                task_name: title,
+                task_details: "",
+                project_name: project?.project_name || "",
+                department: department.name,
+                priority: inlinePriority,
+                task_status: "not_started",
+                assigned_to: assigneeId,
+                start_date: inlineStartDate || dayjs().format("YYYY-MM-DD"),
+                due_date: inlineDueDate || null,
+                due_time: inlineDueTime || null,
+                allotted_hours: inlineAllottedHours,
+                allotted_minutes: inlineAllottedMinutes,
+                allotted_time: allotted,
+                reporter: inlineReporter || null,
+            };
+            if (isRecurring) {
+                payload.weekdays = [0, 1, 2, 3, 4, 5];
+                payload.end_date = null;
+                delete payload.due_date;
+                delete payload.due_time;
+                delete payload.reporter;
+            }
+
+            const res = await fetch(requestUrl, {
                 method: "POST",
                 headers: { ...authHeaders(), "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    task_name: title,
-                    project_name: project?.project_name || "",
-                    department: department.name,
-                    priority: inlinePriority,
-                    task_status: "not_started",
-                    assigned_to: assigneeId,
-                    due_date: inlineDueDate || null,
-                    reporter: inlineReporter || null,
-                }),
+                body: JSON.stringify(payload),
             });
 
             if (res.ok) {
                 const newTask = await res.json();
-                setTasks((prev) => [newTask, ...prev]);
-                message.success(`Task ${newTask.sub_task_id || newTask.task_id} created!`);
+                if (isRecurring) {
+                    message.success("Recurring task created. Open it to set its assignee and schedule.");
+                    await fetchTasks();
+                } else {
+                    setTasks((prev) => [newTask, ...prev]);
+                    message.success(`Task ${newTask.sub_task_id || newTask.task_id} created!`);
+                }
                 setInlineTaskName("");
-                setTimeout(() => inlineInputRef.current?.focus(), 50);
+                setIsCreatingInline(false);
+                setInlineAssignee(undefined);
+                setInlinePriority("medium");
+                setInlineStartDate(dayjs().format("YYYY-MM-DD"));
+                setInlineAllottedHours(0);
+                setInlineAllottedMinutes(0);
+                setInlineDueDate(null);
+                setInlineDueTime(null);
             } else {
                 const errData = await res.json().catch(() => ({}));
                 message.error(errData.detail || "Failed to create task");
@@ -794,14 +1324,31 @@ export default function JiraProjectView({ project, department, mode, initialTab,
     };
 
     // Filtered tasks
+    const taskGroupLabel = (task: JiraTask) => {
+        if (groupBy === "status") return normalizeStatus(task.task_status).label;
+        if (groupBy === "assignee") return task.assigned_to_name || "Unassigned";
+        if (groupBy === "priority") return (task.priority || "No priority").replace(/_/g, " ").replace(/^./, (letter) => letter.toUpperCase());
+        return "";
+    };
+
+    const toggleTaskDateSort = (sortBy: "due" | "days") => {
+        if (isAdminUser && adminSortBy !== sortBy) {
+            setAdminSortBy(sortBy);
+            setDueSortDirection("asc");
+            return;
+        }
+        setDueSortDirection((direction) => direction === "asc" ? "desc" : "asc");
+    };
+
     const filteredTasks = useMemo(() => {
         return tasks.filter((task) => {
+            if (activeTab === "backlog" && (task.assigned_to != null || task.assigned_to_admin != null)) return false;
             if (searchQuery.trim()) {
                 const q = searchQuery.toLowerCase();
-                const matchName = (task.task_name || "").toLowerCase().includes(q);
-                const matchKey = (task.sub_task_id || task.task_id || "").toLowerCase().includes(q);
-                const matchAssignee = (task.assigned_to_name || "").toLowerCase().includes(q);
-                if (!matchName && !matchKey && !matchAssignee) return false;
+                const searchable = [task.task_name, task.task_details, task.task_id, task.sub_task_id,
+                    task.project_name, task.assigned_to_name, task.assigned_by_name, task.priority,
+                    normalizeStatus(task.task_status).label, task.due_date, task.due_time];
+                if (!searchable.some((field) => field?.toLowerCase().includes(q))) return false;
             }
             if (filterAssignee) {
                 if (filterAssignee === "unassigned") {
@@ -817,8 +1364,21 @@ export default function JiraProjectView({ project, department, mode, initialTab,
                 return false;
             }
             return true;
+        }).sort((a, b) => {
+            if (groupBy !== "none") {
+                const groupCompare = taskGroupLabel(a).localeCompare(taskGroupLabel(b));
+                if (groupCompare) return groupCompare;
+            }
+            if (isAdminUser && adminSortBy === "created") return b.id - a.id;
+            if (!a.due_date && !b.due_date) return a.id - b.id;
+            if (!a.due_date) return 1;
+            if (!b.due_date) return -1;
+            const sortByDays = isAdminUser && adminSortBy === "days";
+            const dueA = dayjs(`${a.due_date} ${sortByDays ? "00:00:00" : a.due_time || "23:59:59"}`).valueOf();
+            const dueB = dayjs(`${b.due_date} ${sortByDays ? "00:00:00" : b.due_time || "23:59:59"}`).valueOf();
+            return (dueA - dueB) * (dueSortDirection === "asc" ? 1 : -1) || a.id - b.id;
         });
-    }, [tasks, searchQuery, filterAssignee, filterPriority, filterStatus]);
+    }, [tasks, searchQuery, filterAssignee, filterPriority, filterStatus, dueSortDirection, adminSortBy, groupBy, isAdminUser, activeTab]);
 
     const projectMembers = useMemo(() => {
         const set = new Set<string>();
@@ -829,6 +1389,60 @@ export default function JiraProjectView({ project, department, mode, initialTab,
         employees.forEach((e) => set.add(e.name));
         return Array.from(set);
     }, [tasks, project.assignees, employees]);
+
+    const summaryTasks = useMemo(() => {
+        const isEmployee = userRole === "employee" || user?.role === "employee";
+        if (isEmployee) {
+            return tasks.filter((task) => (myId ? task.assigned_to === myId : task.assigned_to_name === user?.name));
+        }
+        return summaryAssignee === null
+            ? tasks
+            : tasks.filter((task) => task.assigned_to === summaryAssignee);
+    }, [tasks, summaryAssignee, userRole, user?.role, user?.name, myId]);
+
+    const summaryStatusData = useMemo(() => {
+        const groups = [
+            { name: "Completed", color: "#16A34A", statuses: ["completed"] },
+            { name: "In Progress", color: "#D1479B", statuses: ["in_progress", "paused", "rework_needed"] },
+            { name: "Under Review", color: "#8B5CF6", statuses: ["under_review"] },
+            { name: "Submitted", color: "#F59E0B", statuses: ["submitted", "resubmitted"] },
+            { name: "To Do", color: "#94A3B8", statuses: ["not_started", "on_hold"] },
+        ];
+        return groups.map((group) => ({
+            name: group.name,
+            value: summaryTasks.filter((task) => group.statuses.includes(task.task_status)).length,
+            fill: group.color,
+        }));
+    }, [summaryTasks]);
+
+    const summaryPriorityData = useMemo(() => {
+        const priorities = [
+            { name: "Critical", value: "critical", color: "#dc2626" },
+            { name: "High", value: "high", color: "#f97316" },
+            { name: "Medium", value: "medium", color: "#6366f1" },
+            { name: "Low", value: "low", color: "#16a34a" },
+        ];
+        return priorities.map((priority) => ({
+            name: priority.name,
+            count: summaryTasks.filter((task) => task.priority.toLowerCase() === priority.value).length,
+            fill: priority.color,
+        }));
+    }, [summaryTasks]);
+
+    const summaryQualityData = useMemo(() => {
+        const qualities = [
+            { value: "excellent", name: "Excellent", color: "#16a34a" },
+            { value: "good", name: "Good", color: "#0d9488" },
+            { value: "needs_improvement", name: "Satisfactory", color: "#2563eb" },
+            { value: "rework_needed", name: "Below Expectations", color: "#d97706" },
+            { value: "rejected", name: "Unsatisfactory", color: "#dc2626" },
+        ];
+        return qualities.map((quality) => ({
+            name: quality.name,
+            count: summaryTasks.filter((task) => task.quality_of_task === quality.value).length,
+            fill: quality.color,
+        }));
+    }, [summaryTasks]);
 
     // Status menu
     const getStatusMenuItems = (task: JiraTask): MenuProps["items"] => [
@@ -853,7 +1467,7 @@ export default function JiraProjectView({ project, department, mode, initialTab,
         <div
             style={{
                 background: "#ffffff",
-                minHeight: isFullscreen ? "100vh" : "calc(100vh - 70px)",
+                minHeight: "calc(100vh - 70px)",
                 padding: "20px 32px 60px",
                 maxWidth: 1600,
                 margin: "0 auto",
@@ -1077,29 +1691,6 @@ export default function JiraProjectView({ project, department, mode, initialTab,
                             }}
                         />
                     </Tooltip>
-                    <Tooltip title="Automations">
-                        <Button
-                            type="text"
-                            icon={<ThunderboltOutlined style={{ fontSize: 15, color: "#44546f" }} />}
-                            onClick={() => message.info("Timer triggers and auto-reassign active")}
-                        />
-                    </Tooltip>
-                    <Tooltip title="Toggle Layout">
-                        <Button type="text" icon={<LayoutOutlined style={{ fontSize: 15, color: "#44546f" }} />} />
-                    </Tooltip>
-                    <Tooltip title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}>
-                        <Button
-                            type="text"
-                            icon={
-                                isFullscreen ? (
-                                    <FullscreenExitOutlined style={{ fontSize: 15, color: "#44546f" }} />
-                                ) : (
-                                    <FullscreenOutlined style={{ fontSize: 15, color: "#44546f" }} />
-                                )
-                            }
-                            onClick={() => setIsFullscreen(!isFullscreen)}
-                        />
-                    </Tooltip>
                 </div>
             </div>
 
@@ -1186,15 +1777,6 @@ export default function JiraProjectView({ project, department, mode, initialTab,
                     <LineChartOutlined style={{ fontSize: 14 }} /> Timeline
                 </button>
                 <button
-                    className={`jira-tab-btn ${activeTab === "docs" ? "active" : ""}`}
-                    onClick={() => setActiveTab("docs")}
-                >
-                    <FileTextOutlined style={{ fontSize: 14 }} /> Docs
-                </button>
-                <button className="jira-tab-btn" onClick={() => message.info("Forms available")}>
-                    <FormOutlined style={{ fontSize: 14 }} /> Forms
-                </button>
-                <button
                     className={`jira-tab-btn ${activeTab === "calendar" ? "active" : ""}`}
                     onClick={() => setActiveTab("calendar")}
                 >
@@ -1205,6 +1787,27 @@ export default function JiraProjectView({ project, department, mode, initialTab,
                     onClick={() => setActiveTab("list")}
                 >
                     <TableOutlined style={{ fontSize: 14 }} /> List
+                </button>
+                {isAdminUser ? (
+                    <button
+                        className={`jira-tab-btn ${activeTab === "review" ? "active" : ""}`}
+                        onClick={() => setActiveTab("review")}
+                    >
+                        <FileTextOutlined style={{ fontSize: 14 }} /> Review
+                    </button>
+                ) : (
+                    <button
+                        className={`jira-tab-btn ${activeTab === "submitted" ? "active" : ""}`}
+                        onClick={() => setActiveTab("submitted")}
+                    >
+                        <FileTextOutlined style={{ fontSize: 14 }} /> Submitted
+                    </button>
+                )}
+                <button
+                    className={`jira-tab-btn ${activeTab === "completed" ? "active" : ""}`}
+                    onClick={() => setActiveTab("completed")}
+                >
+                    <CheckCircleFilled style={{ fontSize: 14 }} /> Completed
                 </button>
                 {mode !== "recurring" && (
                     <button
@@ -1228,32 +1831,14 @@ export default function JiraProjectView({ project, department, mode, initialTab,
                 }}
             >
                 <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                    <button
-                        onClick={() => setAiModalOpen(true)}
-                        style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: 6,
-                            padding: "6px 14px",
-                            borderRadius: 18,
-                            background: "linear-gradient(135deg, #f0f7ff 0%, #faf5ff 100%)",
-                            border: "1px solid #c7d2fe",
-                            color: "#4338ca",
-                            fontWeight: 600,
-                            fontSize: 13,
-                            cursor: "pointer",
-                        }}
-                    >
-                        <span>✨</span> Ask AI
-                    </button>
-
                     <Input
                         prefix={<SearchOutlined style={{ color: "#8590a2" }} />}
-                        placeholder="Search work..."
+                        placeholder="Search task, ID, assignee, reporter..."
+                        aria-label="Search tasks by name, ID, details, assignee, reporter, priority, status, or deadline"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         allowClear
-                        style={{ width: 220, borderRadius: 20, height: 34, fontSize: 13 }}
+                        style={{ width: 290, borderRadius: 20, height: 34, fontSize: 13 }}
                     />
 
                     {/* Member Filter Chips */}
@@ -1411,12 +1996,41 @@ export default function JiraProjectView({ project, department, mode, initialTab,
                                 cursor: "pointer",
                             }}
                         >
-                            <BarsOutlined style={{ fontSize: 12 }} /> Group
+                            <BarsOutlined style={{ fontSize: 12 }} /> Group{groupBy !== "none" ? `: ${groupBy}` : ""}
                         </button>
                     </Dropdown>
                 </div>
 
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    {activeTab === "list" && (
+                    <Button
+                        type="primary"
+                        icon={<PlusOutlined />}
+                        onClick={() => {
+                            createTaskForm.resetFields();
+                            createTaskForm.setFieldsValue({
+                                department: department.name,
+                                project_name: project?.project_name || "",
+                                priority: "medium",
+                                start_date: dayjs(),
+                                allotted_hours: 0,
+                                allotted_minutes: 0,
+                                reporter: reporters[0]?.key,
+                            });
+                            setStartDate(dayjs());
+                            setCreateTaskModalOpen(true);
+                        }}
+                        style={{
+                            background: "#D14E9A",
+                            borderColor: "#D14E9A",
+                            borderRadius: 6,
+                            fontWeight: 600,
+                            height: 34,
+                        }}
+                    >
+                        Create Task
+                    </Button>
+                    )}
                     <Tooltip title="Refresh Tasks">
                         <Button
                             icon={<ReloadOutlined style={{ color: "#44546f" }} />}
@@ -1433,7 +2047,7 @@ export default function JiraProjectView({ project, department, mode, initialTab,
                 <div style={{ display: "flex", justifyContent: "center", padding: "80px 0" }}>
                     <Spin size="large" tip="Loading project workspace..." />
                 </div>
-            ) : activeTab === "list" ? (
+            ) : activeTab === "list" || activeTab === "backlog" || activeTab === "submitted" || activeTab === "review" || activeTab === "completed" ? (
                 /* ══════════════════════════════════════════════════════════════════
                    1. JIRA LIST TABLE WITH ALL COLUMNS & TIMER CONTROLS
                    ══════════════════════════════════════════════════════════════════ */
@@ -1446,7 +2060,7 @@ export default function JiraProjectView({ project, department, mode, initialTab,
                         boxShadow: "0 1px 3px rgba(9, 30, 66, 0.08)",
                     }}
                 >
-                    <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", minWidth: 1350 }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", minWidth: activeTab === "completed" ? 2350 : activeTab === "review" || activeTab === "submitted" ? 1750 : 1350 }}>
                         <thead>
                             <tr
                                 style={{
@@ -1457,23 +2071,65 @@ export default function JiraProjectView({ project, department, mode, initialTab,
                                     fontWeight: 700,
                                 }}
                             >
-                                <th style={{ width: 36, padding: "10px 12px", textAlign: "center" }}>
-                                    <input type="checkbox" style={{ cursor: "pointer" }} />
-                                </th>
                                 <th style={{ padding: "10px 12px", width: 110 }}>Task ID</th>
-                                <th style={{ padding: "10px 12px", width: 120 }}>Sub Task ID</th>
+                                <th style={{ padding: "10px 12px", width: 120, whiteSpace: "nowrap" }}>Sub Task<br />ID</th>
                                 <th style={{ padding: "10px 12px", minWidth: 260 }}>
-                                    <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-                                        <RightOutlined style={{ fontSize: 10, color: "#8590a2" }} /> Task
-                                    </span>
+                                    Task
                                 </th>
                                 <th style={{ padding: "10px 12px", width: 180 }}>Assignee</th>
                                 <th style={{ padding: "10px 12px", width: 140 }}>Status</th>
                                 <th style={{ padding: "10px 12px", width: 130 }}>Priority</th>
                                 <th style={{ padding: "10px 12px", width: 160 }}>Reporter</th>
-                                <th style={{ padding: "10px 12px", width: 140 }}>Due Date</th>
-                                <th style={{ padding: "10px 12px", width: 90 }}>Allotted</th>
-                                <th style={{ padding: "10px 12px", width: 95 }}>Time Taken</th>
+                                <th style={{ padding: "10px 12px", minWidth: 185 }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                        <span>Due Date &amp; Deadline</span>
+                                        <button
+                                            type="button"
+                                            onClick={() => toggleTaskDateSort("due")}
+                                            aria-label={`Sort due dates ${dueSortDirection === "asc" ? "descending" : "ascending"}`}
+                                            title={`Currently ${dueSortDirection === "asc" ? "ascending" : "descending"}; click to reverse`}
+                                            style={{ border: 0, padding: 0, background: "transparent", color: "#44546f", cursor: "pointer", fontSize: 13, fontWeight: 700 }}
+                                        >
+                                            {dueSortDirection === "asc" ? "↑↓" : "↓↑"}
+                                        </button>
+                                    </div>
+                                </th>
+                                <th style={{ padding: "10px 12px", minWidth: 150 }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                        <span>Days To Go</span>
+                                        <button
+                                            type="button"
+                                            onClick={() => toggleTaskDateSort("days")}
+                                            aria-label={`Sort days to go ${dueSortDirection === "asc" ? "descending" : "ascending"}`}
+                                            title="Sort by days remaining"
+                                            style={{ border: 0, padding: 0, background: "transparent", color: "#44546f", cursor: "pointer", fontSize: 13, fontWeight: 700 }}
+                                        >
+                                            {dueSortDirection === "asc" ? "↑↓" : "↓↑"}
+                                        </button>
+                                    </div>
+                                </th>
+                                <th style={{ padding: "10px 12px", width: 115 }}>Allotted Time</th>
+                                <th style={{ padding: "10px 12px", width: 110 }}>Time Taken</th>
+                                {activeTab === "review" && <>
+                                    <th style={{ padding: "10px 12px", minWidth: 180 }}>Task Sheet Link</th>
+                                    <th style={{ padding: "10px 12px", minWidth: 220 }}>Employee Remarks</th>
+                                    <th style={{ padding: "10px 12px", minWidth: 180 }}>Submitted Proofs</th>
+                                </>}
+                                {activeTab === "submitted" && <>
+                                    <th style={{ padding: "10px 12px", minWidth: 180 }}>Task Sheet Link</th>
+                                    <th style={{ padding: "10px 12px", minWidth: 220 }}>Attachments</th>
+                                    <th style={{ padding: "10px 12px", minWidth: 240 }}>Employee Remarks</th>
+                                </>}
+                                {activeTab === "completed" && <>
+                                    <th style={{ padding: "10px 12px", minWidth: 160 }}>Quality</th>
+                                    <th style={{ padding: "10px 12px", width: 90 }}>Rating</th>
+                                    <th style={{ padding: "10px 12px", minWidth: 180 }}>Task Sheet Link</th>
+                                    <th style={{ padding: "10px 12px", minWidth: 180 }}>Attachments</th>
+                                    <th style={{ padding: "10px 12px", minWidth: 200 }}>Employee Remarks</th>
+                                    <th style={{ padding: "10px 12px", minWidth: 200 }}>Admin Remarks</th>
+                                    <th style={{ padding: "10px 12px", width: 100 }}>Rework Count</th>
+                                    <th style={{ padding: "10px 12px", minWidth: 150 }}>Completed On</th>
+                                </>}
                                 <th style={{ padding: "10px 12px", width: 190 }}>Timer Actions</th>
                                 <th style={{ width: 44, padding: "10px 12px", textAlign: "center" }}>
                                     <SettingOutlined style={{ color: "#8590a2" }} />
@@ -1484,7 +2140,7 @@ export default function JiraProjectView({ project, department, mode, initialTab,
                             {filteredTasks.length === 0 ? (
                                 <tr>
                                     <td
-                                        colSpan={13}
+                                        colSpan={13 + (activeTab === "review" || activeTab === "submitted" ? 3 : activeTab === "completed" ? 8 : 0)}
                                         style={{
                                             textAlign: "center",
                                             padding: "48px 20px",
@@ -1492,25 +2148,31 @@ export default function JiraProjectView({ project, department, mode, initialTab,
                                             fontSize: 14,
                                         }}
                                     >
-                                        No tasks found. Click <b>+ Create</b> below to quickly add one!
+                                        {activeTab === "backlog" ? "No unassigned tasks in the backlog." : activeTab === "submitted" ? "No submitted tasks to show." : <>No tasks found. Click <b>+ Create</b> below to quickly add one!</>}
                                     </td>
                                 </tr>
                             ) : (
-                                filteredTasks.map((task) => {
+                                filteredTasks.map((task, taskIndex) => {
                                     const assigneeColors = getAvatarColor(task.assigned_to_name || "");
                                     const reporterColors = getAvatarColor(task.assigned_by_name || "Admin");
                                     const statusMeta = normalizeStatus(task.task_status);
                                     const isAssigneeMenuOpen = activeAssigneeTaskId === task.id;
+                                    const groupLabel = taskGroupLabel(task);
+                                    const previousGroupLabel = taskIndex > 0 ? taskGroupLabel(filteredTasks[taskIndex - 1]) : null;
+                                    const showGroupHeader = groupBy !== "none" && groupLabel !== previousGroupLabel;
+                                    const groupCount = showGroupHeader ? filteredTasks.filter((item) => taskGroupLabel(item) === groupLabel).length : 0;
+                                    const groupTitle = groupBy === "status" ? "Status" : groupBy === "assignee" ? "Assignee" : "Priority";
 
                                     return (
-                                        <tr key={task.id} className="jira-table-row">
-                                            {/* Checkbox */}
-                                            <td className="jira-table-cell" style={{ textAlign: "center" }}>
-                                                <input type="checkbox" style={{ cursor: "pointer" }} />
+                                        <Fragment key={task.id}>
+                                        {showGroupHeader && <tr>
+                                            <td colSpan={13 + (activeTab === "review" || activeTab === "submitted" ? 3 : activeTab === "completed" ? 8 : 0)} style={{ padding: "8px 14px", background: "#f7f8f9", color: "#44546f", fontSize: 12, fontWeight: 700, borderTop: "1px solid #dfe1e6" }}>
+                                                {groupTitle}: {groupLabel} <span style={{ marginLeft: 6, color: "#8590a2", fontWeight: 500 }}>({groupCount})</span>
                                             </td>
-
+                                        </tr>}
+                                        <tr className="jira-table-row">
                                             {/* TASK ID COLUMN */}
-                                            <td className="jira-table-cell">
+                                            <td className="jira-table-cell" style={{ whiteSpace: "nowrap" }}>
                                                 <span
                                                     style={{
                                                         fontSize: 12,
@@ -1521,6 +2183,7 @@ export default function JiraProjectView({ project, department, mode, initialTab,
                                                         borderRadius: 4,
                                                         cursor: "pointer",
                                                         display: "inline-block",
+                                                        whiteSpace: "nowrap",
                                                     }}
                                                     onClick={() => openTaskDetailModal(task)}
                                                     title="Click to view details"
@@ -1581,6 +2244,7 @@ export default function JiraProjectView({ project, department, mode, initialTab,
                                             {/* ASSIGNEE COLUMN (Screenshot 1 clone: Interactive inline dropdown) */}
                                             <td className="jira-table-cell">
                                                 <Dropdown
+                                                    disabled={!canEditTask(task)}
                                                     open={isAssigneeMenuOpen}
                                                     onOpenChange={(open) => setActiveAssigneeTaskId(open ? task.id : null)}
                                                     trigger={["click"]}
@@ -1705,13 +2369,13 @@ export default function JiraProjectView({ project, department, mode, initialTab,
                                                                 <span style={{ fontSize: 13, color: "#172b4d", fontWeight: 500 }}>
                                                                     {task.assigned_to_name}
                                                                 </span>
-                                                                <CloseOutlined
+                                                                {canEditTask(task) && <CloseOutlined
                                                                     style={{ fontSize: 9, color: "#94a3b8", marginLeft: 4 }}
                                                                     onClick={(e) => {
                                                                         e.stopPropagation();
                                                                         handleReassign(task, null);
                                                                     }}
-                                                                />
+                                                                />}
                                                             </>
                                                         ) : (
                                                             <span style={{ color: "#8590a2", fontSize: 12, fontStyle: "italic" }}>
@@ -1724,31 +2388,40 @@ export default function JiraProjectView({ project, department, mode, initialTab,
 
                                             {/* STATUS DROPDOWN PILL (Positioned after Assignee as requested) */}
                                             <td className="jira-table-cell">
-                                                <Dropdown menu={{ items: getStatusMenuItems(task) }} trigger={["click"]}>
-                                                    <button
-                                                        style={{
-                                                            background: statusMeta.bg,
-                                                            color: statusMeta.text,
-                                                            border: `1px solid ${statusMeta.border}`,
-                                                            padding: "3px 10px",
-                                                            borderRadius: 5,
-                                                            fontSize: 12,
-                                                            fontWeight: 600,
-                                                            display: "inline-flex",
-                                                            alignItems: "center",
-                                                            gap: 5,
-                                                            cursor: "pointer",
-                                                        }}
-                                                    >
-                                                        <span>{statusMeta.label}</span>
-                                                        <DownOutlined style={{ fontSize: 9 }} />
-                                                    </button>
-                                                </Dropdown>
+                                                {isAdminUser && activeTab === "review" ? (
+                                                    <Tag color={task.task_status === "under_review" ? "orange" : "purple"} style={{ margin: 0 }}>
+                                                        {statusMeta.label}
+                                                    </Tag>
+                                                ) : canEditTask(task) ? (
+                                                    <Dropdown menu={{ items: getStatusMenuItems(task) }} trigger={["click"]}>
+                                                        <button
+                                                            style={{
+                                                                background: statusMeta.bg,
+                                                                color: statusMeta.text,
+                                                                border: `1px solid ${statusMeta.border}`,
+                                                                padding: "3px 10px",
+                                                                borderRadius: 5,
+                                                                fontSize: 12,
+                                                                fontWeight: 600,
+                                                                display: "inline-flex",
+                                                                alignItems: "center",
+                                                                gap: 5,
+                                                                cursor: "pointer",
+                                                            }}
+                                                        >
+                                                            <span>{statusMeta.label}</span>
+                                                            <DownOutlined style={{ fontSize: 9 }} />
+                                                        </button>
+                                                    </Dropdown>
+                                                ) : (
+                                                    <Tag style={{ margin: 0, color: statusMeta.text, background: statusMeta.bg, borderColor: statusMeta.border }}>{statusMeta.label}</Tag>
+                                                )}
                                             </td>
 
                                             {/* PRIORITY COLUMN (with interactive quick changer) */}
                                             <td className="jira-table-cell">
                                                 <Dropdown
+                                                    disabled={!canEditTask(task)}
                                                     menu={{
                                                         items: ["critical", "high", "medium", "low"].map((pr) => ({
                                                             key: pr,
@@ -1758,7 +2431,7 @@ export default function JiraProjectView({ project, department, mode, initialTab,
                                                     }}
                                                     trigger={["click"]}
                                                 >
-                                                    <span style={{ cursor: "pointer" }}>{renderPriority(task.priority)}</span>
+                                                    <span style={{ cursor: canEditTask(task) ? "pointer" : "default" }}>{renderPriority(task.priority)}</span>
                                                 </Dropdown>
                                             </td>
 
@@ -1831,41 +2504,173 @@ export default function JiraProjectView({ project, department, mode, initialTab,
 
                                             {/* DUE DATE COLUMN (Interactive DatePicker) */}
                                             <td className="jira-table-cell">
-                                                <DatePicker
-                                                    size="small"
-                                                    value={task.due_date ? dayjs(task.due_date) : null}
-                                                    onChange={(_date, dateString) =>
-                                                        handleUpdateTaskField(task.id, { due_date: dateString || null })
-                                                    }
-                                                    placeholder="Set due date"
-                                                    style={{ width: 130, borderRadius: 6, fontSize: 12 }}
-                                                />
+                                                <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                                                    {canEditTask(task) ? (
+                                                        <DatePicker
+                                                            size="small"
+                                                            value={task.due_date ? dayjs(task.due_date) : null}
+                                                            onChange={(_date, dateString) => handleUpdateTaskField(task.id, { due_date: dateString || null })}
+                                                            placeholder="Set due date"
+                                                            style={{ width: 150, borderRadius: 6, fontSize: 12 }}
+                                                        />
+                                                    ) : (
+                                                        <span style={{ fontSize: 12, color: "#475569" }}>{task.due_date ? dayjs(task.due_date).format("DD MMM YYYY") : "—"}</span>
+                                                    )}
+                                                    {task.due_time && <span style={{ fontSize: 11, color: "#dc2626", fontWeight: 600 }}>by {dayjs(`1970-01-01T${task.due_time}`).format("hh:mm A")}</span>}
+                                                </div>
+                                            </td>
+
+                                            <td className="jira-table-cell">
+                                                {task.due_date && !["completed", "cancelled", "submitted", "under_review", "resubmitted"].includes(task.task_status) ? (() => {
+                                                    const days = dayjs(task.due_date).startOf("day").diff(dayjs().startOf("day"), "day");
+                                                    const label = days < 0 ? `Overdue by ${Math.abs(days)} ${Math.abs(days) === 1 ? "day" : "days"}` : days === 0 ? "Due today" : `${days} ${days === 1 ? "day" : "days"} to go`;
+                                                    const color = days < 0 ? "#dc2626" : days === 0 ? "#d97706" : "#059669";
+                                                    const bg = days < 0 ? "#fef2f2" : days === 0 ? "#fffbeb" : "#ecfdf5";
+                                                    return <span style={{ color, background: bg, border: `1px solid ${color}`, borderRadius: 6, padding: "3px 8px", fontSize: 11, fontWeight: 700, whiteSpace: "nowrap" }}>{label}</span>;
+                                                })() : <span style={{ color: "#94a3b8" }}>—</span>}
                                             </td>
 
                                             {/* ALLOTTED TIME */}
                                             <td className="jira-table-cell">
-                                                <span style={{ fontSize: 12, color: "#475569", fontWeight: 600 }}>
-                                                    {task.allotted_time ? `${task.allotted_time}h` : "—"}
+                                                <span style={{ fontSize: 12, color: "#475569", fontWeight: 600, whiteSpace: "nowrap" }}>
+                                                    {formatDuration(task.allotted_time)}
                                                 </span>
                                             </td>
 
                                             {/* TIME TAKEN */}
                                             <td className="jira-table-cell">
-                                                <span style={{ fontSize: 12, color: "#0c66e4", fontWeight: 600 }}>
-                                                    {task.total_time_taken ? `${task.total_time_taken}h` : "0.0h"}
+                                                <span style={{ fontSize: 12, color: "#0c66e4", fontWeight: 600, whiteSpace: "nowrap" }}>
+                                                    {formatDuration(task.total_time_taken ?? 0)}
                                                 </span>
                                             </td>
+
+                                            {activeTab === "review" && <>
+                                                <td className="jira-table-cell">
+                                                    {task.task_sheet_link ? (
+                                                        <a href={task.task_sheet_link} target="_blank" rel="noreferrer" style={{ color: "#0c66e4", fontSize: 12, whiteSpace: "nowrap" }}>
+                                                            Open submission link
+                                                        </a>
+                                                    ) : <span style={{ color: "#94a3b8", fontSize: 12 }}>—</span>}
+                                                </td>
+                                                <td className="jira-table-cell" style={{ maxWidth: 250, whiteSpace: "pre-wrap", overflowWrap: "anywhere", fontSize: 12, color: "#475569" }}>
+                                                    {task.employee_remarks || <span style={{ color: "#94a3b8" }}>—</span>}
+                                                </td>
+                                                <td className="jira-table-cell">
+                                                    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 5 }}>
+                                                        {(task.attachments || []).map((attachment) => (
+                                                            <div key={attachment.id} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                                                                <Button
+                                                                    type="link"
+                                                                    size="small"
+                                                                    icon={<EyeOutlined />}
+                                                                    title="Preview attachment"
+                                                                    aria-label={`Preview ${attachment.name || "attachment"}`}
+                                                                    onClick={() => previewAttachmentFile(attachment.id, task.id)}
+                                                                    style={{ padding: 0, height: "auto" }}
+                                                                />
+                                                                <Button
+                                                                    type="link"
+                                                                    size="small"
+                                                                    icon={<DownloadOutlined />}
+                                                                    title="Download attachment"
+                                                                    aria-label={`Download ${attachment.name || "attachment"}`}
+                                                                    onClick={() => downloadAttachmentFile(attachment.file, attachment.name || "attachment", attachment.id, task.id)}
+                                                                    style={{ padding: 0, height: "auto" }}
+                                                                />
+                                                                <span style={{ fontSize: 12, color: "#0c66e4" }}>{attachment.name || "Attachment"}</span>
+                                                            </div>
+                                                        ))}
+                                                        {(!task.attachments || task.attachments.length === 0) && <span style={{ color: "#94a3b8", fontSize: 12 }}>No attachments</span>}
+                                                    </div>
+                                                </td>
+                                            </>}
+
+                                            {activeTab === "submitted" && <>
+                                                <td className="jira-table-cell">
+                                                    {task.task_sheet_link ? (
+                                                        <a href={task.task_sheet_link} target="_blank" rel="noreferrer" style={{ color: "#0c66e4", fontSize: 12, whiteSpace: "nowrap" }}>
+                                                            Open submission link
+                                                        </a>
+                                                    ) : <span style={{ color: "#94a3b8", fontSize: 12 }}>—</span>}
+                                                </td>
+                                                <td className="jira-table-cell">
+                                                    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 5 }}>
+                                                        {(task.attachments || []).map((attachment) => (
+                                                            <div key={attachment.id} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                                                                <Button type="link" size="small" icon={<EyeOutlined />} title="Preview attachment" aria-label={`Preview ${attachment.name || "attachment"}`} onClick={() => previewAttachmentFile(attachment.id, task.id)} style={{ padding: 0, height: "auto" }} />
+                                                                <Button type="link" size="small" icon={<DownloadOutlined />} title="Download attachment" aria-label={`Download ${attachment.name || "attachment"}`} onClick={() => downloadAttachmentFile(attachment.file, attachment.name || "attachment", attachment.id, task.id)} style={{ padding: 0, height: "auto" }} />
+                                                                <span style={{ fontSize: 12, color: "#0c66e4" }}>{attachment.name || "Attachment"}</span>
+                                                            </div>
+                                                        ))}
+                                                        {(!task.attachments || task.attachments.length === 0) && <span style={{ color: "#94a3b8", fontSize: 12 }}>No attachments</span>}
+                                                    </div>
+                                                </td>
+                                                <td className="jira-table-cell" style={{ maxWidth: 260, whiteSpace: "pre-wrap", overflowWrap: "anywhere", fontSize: 12, color: "#475569" }}>
+                                                    {task.employee_remarks || <span style={{ color: "#94a3b8" }}>—</span>}
+                                                </td>
+                                            </>}
+
+                                            {activeTab === "completed" && <>
+                                                <td className="jira-table-cell">
+                                                    <Tag color="green" style={{ margin: 0 }}>{REVIEW_QUALITY_OPTIONS.find((option) => option.value === task.quality_of_task)?.label || task.quality_of_task || "—"}</Tag>
+                                                </td>
+                                                <td className="jira-table-cell" style={{ whiteSpace: "nowrap" }}>
+                                                    {task.rating ? <span title={`${task.rating} out of 5`} style={{ color: "#f5c400", letterSpacing: 1 }}>{"★".repeat(Math.min(5, task.rating))}</span> : <span style={{ color: "#94a3b8" }}>—</span>}
+                                                </td>
+                                                <td className="jira-table-cell">
+                                                    {task.task_sheet_link ? <a href={task.task_sheet_link} target="_blank" rel="noreferrer" style={{ color: "#0c66e4", fontSize: 12 }}>Open</a> : <span style={{ color: "#94a3b8" }}>—</span>}
+                                                </td>
+                                                <td className="jira-table-cell">
+                                                    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 5 }}>
+                                                        {(task.attachments || []).map((attachment) => (
+                                                            <div key={attachment.id} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                                                                <Button type="link" size="small" icon={<EyeOutlined />} title="Preview attachment" aria-label={`Preview ${attachment.name || "attachment"}`} onClick={() => previewAttachmentFile(attachment.id, task.id)} style={{ padding: 0, height: "auto" }} />
+                                                                <Button type="link" size="small" icon={<DownloadOutlined />} title="Download attachment" aria-label={`Download ${attachment.name || "attachment"}`} onClick={() => downloadAttachmentFile(attachment.file, attachment.name || "attachment", attachment.id, task.id)} style={{ padding: 0, height: "auto" }} />
+                                                                <span style={{ fontSize: 12, color: "#0c66e4" }}>{attachment.name || "Attachment"}</span>
+                                                            </div>
+                                                        ))}
+                                                        {(!task.attachments || task.attachments.length === 0) && <span style={{ color: "#94a3b8", fontSize: 12 }}>—</span>}
+                                                    </div>
+                                                </td>
+                                                <td className="jira-table-cell" style={{ maxWidth: 240, whiteSpace: "pre-wrap", overflowWrap: "anywhere", fontSize: 12, color: "#475569" }}>{task.employee_remarks || <span style={{ color: "#94a3b8" }}>—</span>}</td>
+                                                <td className="jira-table-cell" style={{ maxWidth: 240, whiteSpace: "pre-wrap", overflowWrap: "anywhere", fontSize: 12, color: "#475569" }}>{task.admin_remarks || <span style={{ color: "#94a3b8" }}>—</span>}</td>
+                                                <td className="jira-table-cell" style={{ textAlign: "center" }}>{task.rework_count ?? 0}</td>
+                                                <td className="jira-table-cell" style={{ whiteSpace: "nowrap", fontSize: 12, color: "#475569" }}>{task.reviewed_date ? dayjs(task.reviewed_date).format("DD MMM YYYY, HH:mm") : "—"}</td>
+                                            </>}
 
                                             {/* TIMER ACTIONS COLUMN (Start, Pause, Resume, Submit) */}
                                             <td className="jira-table-cell">
                                                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                                    {isTaskMine(task) ? (
+                                                    {isAdminUser && activeTab === "review" ? (
+                                                        <>
+                                                            <Button
+                                                                size="small"
+                                                                type="primary"
+                                                                loading={reviewBusyTaskId === task.id}
+                                                                onClick={() => openApproveReview(task)}
+                                                                style={{ background: "#16a34a", borderColor: "#16a34a", borderRadius: 6, fontSize: 11, fontWeight: 600 }}
+                                                            >
+                                                                Approve
+                                                            </Button>
+                                                            <Button
+                                                                size="small"
+                                                                danger
+                                                                loading={reviewBusyTaskId === task.id}
+                                                                onClick={() => openReworkReview(task)}
+                                                                style={{ borderRadius: 6, fontSize: 11, fontWeight: 600 }}
+                                                            >
+                                                                Rework
+                                                            </Button>
+                                                        </>
+                                                    ) : isTaskMine(task) ? (
                                                         task.task_status === "not_started" ? (
                                                             <Button
                                                                 size="small"
                                                                 type="primary"
                                                                 icon={<PlayCircleOutlined />}
                                                                 loading={timerBusyTaskId === task.id}
+                                                                disabled={activeTimerTaskId !== null && activeTimerTaskId !== task.id}
+                                                                title={activeTimerTaskId !== null && activeTimerTaskId !== task.id ? "Pause or submit your active task first" : undefined}
                                                                 onClick={() => handleStartTimer(task)}
                                                                 style={{
                                                                     background: "#16a34a",
@@ -1878,14 +2683,13 @@ export default function JiraProjectView({ project, department, mode, initialTab,
                                                                 Start
                                                             </Button>
                                                         ) : task.task_status === "in_progress" ? (
-                                                            <>
+                                                            activeTimerTaskId === task.id ? <>
                                                                 <Button
                                                                     size="small"
                                                                     icon={<PauseCircleOutlined />}
                                                                     loading={timerBusyTaskId === task.id}
                                                                     onClick={() => {
                                                                         setPauseTarget(task);
-                                                                        setPauseReason("");
                                                                         setPauseModalOpen(true);
                                                                     }}
                                                                     style={{
@@ -1903,12 +2707,7 @@ export default function JiraProjectView({ project, department, mode, initialTab,
                                                                     type="primary"
                                                                     icon={<CheckCircleOutlined />}
                                                                     loading={timerBusyTaskId === task.id}
-                                                                    onClick={() => {
-                                                                        setSubmitTarget(task);
-                                                                        setSubmitSheetLink("");
-                                                                        setSubmitRemarks("");
-                                                                        setSubmitModalOpen(true);
-                                                                    }}
+                                                                    onClick={() => openSubmitModal(task)}
                                                                     style={{
                                                                         background: "#0c66e4",
                                                                         borderRadius: 6,
@@ -1918,7 +2717,20 @@ export default function JiraProjectView({ project, department, mode, initialTab,
                                                                 >
                                                                     Submit
                                                                 </Button>
-                                                            </>
+                                                            </> : (
+                                                                <Button
+                                                                    size="small"
+                                                                    type="primary"
+                                                                    icon={<PlayCircleOutlined />}
+                                                                    loading={timerBusyTaskId === task.id}
+                                                                    disabled={activeTimerTaskId !== null && activeTimerTaskId !== task.id}
+                                                                    title={activeTimerTaskId !== null && activeTimerTaskId !== task.id ? "Pause or submit your active task first" : undefined}
+                                                                    onClick={() => handleResumeTimer(task)}
+                                                                    style={{ background: "#7c3aed", borderColor: "#7c3aed", borderRadius: 6, fontSize: 11, fontWeight: 600 }}
+                                                                >
+                                                                    Resume
+                                                                </Button>
+                                                            )
                                                         ) : task.task_status === "paused" || task.task_status === "rework_needed" ? (
                                                             <>
                                                                 <Button
@@ -1926,10 +2738,12 @@ export default function JiraProjectView({ project, department, mode, initialTab,
                                                                     type="primary"
                                                                     icon={<PlayCircleOutlined />}
                                                                     loading={timerBusyTaskId === task.id}
+                                                                    disabled={activeTimerTaskId !== null && activeTimerTaskId !== task.id}
+                                                                    title={activeTimerTaskId !== null && activeTimerTaskId !== task.id ? "Pause or submit your active task first" : undefined}
                                                                     onClick={() => handleResumeTimer(task)}
                                                                     style={{
-                                                                        background: "#16a34a",
-                                                                        borderColor: "#16a34a",
+                                                                        background: "#7c3aed",
+                                                                        borderColor: "#7c3aed",
                                                                         borderRadius: 6,
                                                                         fontSize: 11,
                                                                         fontWeight: 600,
@@ -1940,13 +2754,7 @@ export default function JiraProjectView({ project, department, mode, initialTab,
                                                                 <Button
                                                                     size="small"
                                                                     icon={<CheckCircleOutlined />}
-                                                                    onClick={() => {
-                                                                        setSubmitTarget(task);
-                                                                        setSubmitSheetLink("");
-                                                                        setSubmitRemarks("");
-                                                                        setSubmitFiles([]);
-                                                                        setSubmitModalOpen(true);
-                                                                    }}
+                                                                    onClick={() => openSubmitModal(task)}
                                                                     style={{ borderRadius: 6, fontSize: 11, fontWeight: 600 }}
                                                                 >
                                                                     Submit
@@ -1977,35 +2785,28 @@ export default function JiraProjectView({ project, department, mode, initialTab,
 
                                             {/* Config / Actions menu */}
                                             <td className="jira-table-cell" style={{ textAlign: "center" }}>
-                                                <Dropdown
-                                                    menu={{
-                                                        items: [
-                                                            {
-                                                                key: "open",
-                                                                label: "Open Jira Dialog",
-                                                                onClick: () => openTaskDetailModal(task),
-                                                            },
-                                                            {
-                                                                key: "copy",
-                                                                label: "Copy Issue Key",
-                                                                onClick: () => {
-                                                                    navigator.clipboard?.writeText(task.sub_task_id || task.task_id);
-                                                                    message.success("Copied key");
-                                                                },
-                                                            },
-                                                        ],
-                                                    }}
-                                                >
-                                                    <Button type="text" size="small" icon={<MoreOutlined style={{ color: "#8590a2" }} />} />
-                                                </Dropdown>
+                                                {activeTab === "submitted" && isTaskMine(task) && ["submitted", "under_review", "resubmitted"].includes(task.task_status) && (
+                                                    <Dropdown
+                                                        menu={{
+                                                            items: [{
+                                                                key: "resubmit",
+                                                                label: "Resubmit",
+                                                                onClick: () => openSubmitModal(task, true),
+                                                            }],
+                                                        }}
+                                                    >
+                                                        <Button type="text" size="small" icon={<MoreOutlined style={{ color: "#8590a2" }} />} />
+                                                    </Dropdown>
+                                                )}
                                             </td>
                                         </tr>
+                                        </Fragment>
                                     );
                                 })
                             )}
 
                             {/* ── INLINE QUICK CREATE ROW ── */}
-                            {isCreatingInline && (
+                            {isCreatingInline && activeTab === "list" && (
                                 <tr style={{ background: "#f8fafc", borderTop: "2px dashed #0c66e4", borderBottom: "1px solid #cbd5e1" }}>
                                     <td style={{ textAlign: "center", padding: "10px 12px" }}>
                                         <span style={{ color: "#7c3aed", fontSize: 14 }}>⚡</span>
@@ -2031,21 +2832,14 @@ export default function JiraProjectView({ project, department, mode, initialTab,
                                         />
                                     </td>
                                     <td style={{ padding: "10px 12px" }}>
-                                        {userRole === "employee" || user?.role === "employee" ? (
-                                            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "#1e293b", fontWeight: 600 }}>
-                                                <span>👤</span>
-                                                <span>{user?.name || "You (Self)"}</span>
-                                            </div>
-                                        ) : (
-                                            <Select
-                                                placeholder="Assignee"
-                                                value={inlineAssignee}
-                                                onChange={(val) => setInlineAssignee(val)}
-                                                style={{ width: "100%" }}
-                                                allowClear
-                                                options={employees.map((e) => ({ value: e.id, label: e.name }))}
-                                            />
-                                        )}
+                                        <Select
+                                            placeholder="Assignee (optional)"
+                                            value={inlineAssignee}
+                                            onChange={(val) => setInlineAssignee(val)}
+                                            style={{ width: "100%" }}
+                                            allowClear
+                                            options={employees.map((e) => ({ value: e.id, label: e.name }))}
+                                        />
                                     </td>
                                     {/* Status (Positioned after Assignee) */}
                                     <td style={{ padding: "10px 12px" }}>
@@ -2079,17 +2873,67 @@ export default function JiraProjectView({ project, department, mode, initialTab,
                                             }))}
                                         />
                                     </td>
-                                    {/* Due Date */}
-                                    <td style={{ padding: "10px 12px" }}>
-                                        <DatePicker
-                                            size="middle"
-                                            onChange={(_d, ds) => setInlineDueDate(typeof ds === "string" ? ds : null)}
-                                            placeholder="Due date"
-                                            style={{ width: "100%", borderRadius: 6 }}
-                                        />
+                                    {/* Due Date & Deadline Time */}
+                                    <td style={{ padding: "8px 10px" }}>
+                                        {mode === "recurring" ? (
+                                            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                                <DatePicker
+                                                    size="small"
+                                                    format="DD MMM YYYY"
+                                                    value={inlineStartDate ? dayjs(inlineStartDate) : null}
+                                                    disabledDate={(date) => date.isBefore(dayjs(), "day")}
+                                                    onChange={(date) => setInlineStartDate(date?.format("YYYY-MM-DD") || null)}
+                                                    placeholder="Start date"
+                                                    style={{ width: "100%", borderRadius: 6 }}
+                                                />
+                                                <span style={{ color: "#64748b", fontSize: 10 }}>Repeat days are set after creation</span>
+                                            </div>
+                                        ) : (
+                                            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                                <DatePicker
+                                                    size="small"
+                                                    format="DD MMM YYYY"
+                                                    onChange={(_d, ds) => setInlineDueDate(typeof ds === "string" && ds ? dayjs(_d).format("YYYY-MM-DD") : null)}
+                                                    placeholder="Due date"
+                                                    style={{ width: "100%", borderRadius: 6 }}
+                                                />
+                                                <TimePicker
+                                                    size="small"
+                                                    format="hh:mm A"
+                                                    use12Hours
+                                                    placeholder="Deadline Time"
+                                                    onChange={(_t) => setInlineDueTime(_t ? _t.format("HH:mm:ss") : null)}
+                                                    style={{ width: "100%", borderRadius: 6 }}
+                                                />
+                                            </div>
+                                        )}
                                     </td>
-                                    {/* Allotted */}
-                                    <td style={{ padding: "10px 12px", color: "#94a3b8", fontSize: 12 }}>—</td>
+                                    {/* Allotted Time */}
+                                    <td style={{ padding: "8px 10px" }}>
+                                        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                            <InputNumber
+                                                size="small"
+                                                min={0}
+                                                step={1}
+                                                placeholder="0"
+                                                addonAfter="hrs"
+                                                value={inlineAllottedHours}
+                                                onChange={(h) => setInlineAllottedHours(Number(h || 0))}
+                                                style={{ width: "100%" }}
+                                            />
+                                            <InputNumber
+                                                size="small"
+                                                min={0}
+                                                max={59}
+                                                step={5}
+                                                placeholder="0"
+                                                addonAfter="mins"
+                                                value={inlineAllottedMinutes}
+                                                onChange={(m) => setInlineAllottedMinutes(Number(m || 0))}
+                                                style={{ width: "100%" }}
+                                            />
+                                        </div>
+                                    </td>
                                     {/* Time taken */}
                                     <td style={{ padding: "10px 12px", color: "#94a3b8", fontSize: 12 }}>0.0h</td>
                                     {/* Actions */}
@@ -2130,23 +2974,59 @@ export default function JiraProjectView({ project, department, mode, initialTab,
                             borderTop: "1px solid #dfe1e6",
                         }}
                     >
-                        <button
-                            onClick={() => setIsCreatingInline(true)}
-                            style={{
-                                background: "transparent",
-                                border: "none",
-                                color: "#0c66e4",
-                                fontWeight: 600,
-                                fontSize: 13.5,
-                                cursor: "pointer",
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: 6,
-                                padding: "4px 8px",
-                            }}
-                        >
-                            <PlusOutlined style={{ fontSize: 12 }} /> Create
-                        </button>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            {activeTab === "list" && (
+                            <button
+                                onClick={() => {
+                                    createTaskForm.resetFields();
+                                    createTaskForm.setFieldsValue({
+                                        department: department.name,
+                                        project_name: project?.project_name || "",
+                                        priority: "medium",
+                                        start_date: dayjs(),
+                                        allotted_hours: 0,
+                                        allotted_minutes: 0,
+                                        reporter: reporters[0]?.key,
+                                    });
+                                    setStartDate(dayjs());
+                                    setCreateTaskModalOpen(true);
+                                }}
+                                style={{
+                                    background: "#D14E9A",
+                                    border: "none",
+                                    color: "#ffffff",
+                                    fontWeight: 600,
+                                    fontSize: 13,
+                                    cursor: "pointer",
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: 6,
+                                    padding: "6px 14px",
+                                    borderRadius: 6,
+                                }}
+                            >
+                                <PlusOutlined style={{ fontSize: 12 }} /> Create Task
+                            </button>
+                            )}
+
+                            {activeTab === "list" && <button
+                                onClick={() => setIsCreatingInline(true)}
+                                style={{
+                                    background: "transparent",
+                                    border: "none",
+                                    color: "#0c66e4",
+                                    fontWeight: 600,
+                                    fontSize: 13,
+                                    cursor: "pointer",
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: 6,
+                                    padding: "4px 8px",
+                                }}
+                            >
+                                + Quick Inline
+                            </button>}
+                        </div>
 
                         <div style={{ color: "#626f86", fontSize: 12.5, display: "flex", alignItems: "center", gap: 6 }}>
                             <span>
@@ -2235,33 +3115,136 @@ export default function JiraProjectView({ project, department, mode, initialTab,
                    3. JIRA SUMMARY VIEW
                    ══════════════════════════════════════════════════════════════════ */
                 <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+                        <div>
+                            <div style={{ fontSize: 19, fontWeight: 700, color: "#172b4d" }}>Task overview</div>
+                            <div style={{ color: "#64748b", fontSize: 13, marginTop: 3 }}>
+                                {department.name} · {mode === "recurring" ? "Recurring tasks" : "Normal tasks"}
+                                {project?.project_name ? ` · ${project.project_name}` : ""}
+                            </div>
+                        </div>
+                        {userRole === "admin" && user?.role !== "employee" && (
+                            <Select
+                                value={summaryAssignee ?? "all"}
+                                onChange={(value) => setSummaryAssignee(value === "all" ? null : Number(value))}
+                                style={{ width: 220 }}
+                                options={[
+                                    { value: "all", label: "All team members" },
+                                    ...employees.map((employee) => ({ value: employee.id, label: employee.name })),
+                                ]}
+                            />
+                        )}
+                    </div>
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16 }}>
                         <div style={{ background: "#f8fafc", padding: "18px 20px", borderRadius: 12, border: "1px solid #e2e8f0" }}>
                             <div style={{ color: "#64748b", fontSize: 12, fontWeight: 600 }}>Total Work Items</div>
-                            <div style={{ fontSize: 28, fontWeight: 700, color: "#0f172a", marginTop: 4 }}>{tasks.length}</div>
+                            <div style={{ fontSize: 28, fontWeight: 700, color: "#0f172a", marginTop: 4 }}>{summaryTasks.length}</div>
                         </div>
                         <div style={{ background: "#f0fdf4", padding: "18px 20px", borderRadius: 12, border: "1px solid #bbf7d0" }}>
                             <div style={{ color: "#166534", fontSize: 12, fontWeight: 600 }}>Completed Items</div>
                             <div style={{ fontSize: 28, fontWeight: 700, color: "#16a34a", marginTop: 4 }}>
-                                {tasks.filter((t) => t.task_status === "completed").length}
+                                {summaryTasks.filter((t) => t.task_status === "completed").length}
                             </div>
                         </div>
                         <div style={{ background: "#eff6ff", padding: "18px 20px", borderRadius: 12, border: "1px solid #bfdbfe" }}>
                             <div style={{ color: "#1e40af", fontSize: 12, fontWeight: 600 }}>Active In-Flight</div>
                             <div style={{ fontSize: 28, fontWeight: 700, color: "#2563eb", marginTop: 4 }}>
-                                {tasks.filter((t) => ["in_progress", "under_review", "rework_needed"].includes(t.task_status)).length}
+                                {summaryTasks.filter((t) => ["in_progress", "under_review", "rework_needed"].includes(t.task_status)).length}
                             </div>
                         </div>
                         <div style={{ background: "#faf5ff", padding: "18px 20px", borderRadius: 12, border: "1px solid #e9d5ff" }}>
                             <div style={{ color: "#6b21a8", fontSize: 12, fontWeight: 600 }}>Completion Velocity</div>
                             <div style={{ fontSize: 28, fontWeight: 700, color: "#7c3aed", marginTop: 4 }}>
-                                {tasks.length > 0
+                                {summaryTasks.length > 0
                                     ? Math.round(
-                                          (tasks.filter((t) => t.task_status === "completed").length / tasks.length) * 100
+                                          (summaryTasks.filter((t) => t.task_status === "completed").length / summaryTasks.length) * 100
                                       )
                                     : 0}
                                 %
                             </div>
+                        </div>
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: 16 }}>
+                        <div style={{ background: "#fff", padding: "20px 22px", borderRadius: 12, border: "1px solid #e2e8f0", minWidth: 0 }}>
+                            <div style={{ fontSize: 15, fontWeight: 700, color: "#172b4d" }}>Status breakdown</div>
+                            <div style={{ color: "#64748b", fontSize: 12, marginTop: 3 }}>Current work item status{summaryAssignee === null ? " across the team" : " for the selected member"}.</div>
+                            {!summaryStatusData.some((item) => item.value > 0) ? (
+                                <div style={{ height: 280, display: "grid", placeItems: "center", color: "#94a3b8", fontSize: 13 }}>No tasks to summarize yet.</div>
+                            ) : (
+                                <ResponsiveContainer width="100%" height={325}>
+                                    <PieChart>
+                                        <Pie data={summaryStatusData.filter((item) => item.value > 0)} dataKey="value" nameKey="name" cx="50%" cy="42%" innerRadius={52} outerRadius={78} paddingAngle={2}>
+                                            {summaryStatusData.filter((entry) => entry.value > 0).map((entry, index) => (
+                                                <Cell key={`status-${index}`} fill={entry.fill} />
+                                            ))}
+                                        </Pie>
+                                        <ChartTooltip />
+                                        <Legend
+                                            verticalAlign="bottom"
+                                            height={48}
+                                            content={() => (
+                                                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, max-content)", justifyContent: "center", columnGap: 16, rowGap: 5, width: "100%", padding: "0 4px" }}>
+                                                    {summaryStatusData.map((entry) => (
+                                                        <div key={entry.name} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, lineHeight: "18px", color: "#5f5f5f", whiteSpace: "nowrap" }}>
+                                                            <span style={{ width: 12, height: 12, borderRadius: 3, background: entry.fill }} />
+                                                            <span>{entry.name}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        />
+                                    </PieChart>
+                                </ResponsiveContainer>
+                            )}
+                        </div>
+                        <div style={{ background: "#fff", padding: "20px 22px", borderRadius: 12, border: "1px solid #e2e8f0", minWidth: 0 }}>
+                            <div style={{ fontSize: 15, fontWeight: 700, color: "#172b4d" }}>Priority distribution</div>
+                            <div style={{ color: "#64748b", fontSize: 12, marginTop: 3 }}>Task count by priority for the same scope.</div>
+                            {summaryTasks.length === 0 ? (
+                                <div style={{ height: 280, display: "grid", placeItems: "center", color: "#94a3b8", fontSize: 13 }}>No tasks to summarize yet.</div>
+                            ) : (
+                                <ResponsiveContainer width="100%" height={280}>
+                                    <BarChart data={summaryPriorityData} margin={{ top: 12, right: 18, left: -16, bottom: 0 }}>
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                        <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                                        <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                                        <ChartTooltip />
+                                        <Bar dataKey="count" name="Tasks" radius={[6, 6, 0, 0]}>
+                                            {summaryPriorityData.map((entry) => <Cell key={entry.name} fill={entry.fill} />)}
+                                        </Bar>
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            )}
+                        </div>
+                        <div style={{ background: "#fff", padding: "20px 22px", borderRadius: 12, border: "1px solid #e2e8f0", minWidth: 0 }}>
+                            <div style={{ fontSize: 15, fontWeight: 700, color: "#172b4d" }}>Quality rating distribution</div>
+                            <div style={{ color: "#64748b", fontSize: 12, marginTop: 3 }}>Admin review ratings for the same scope.</div>
+                            {summaryQualityData.every((quality) => quality.count === 0) ? (
+                                <div style={{ height: 280, display: "grid", placeItems: "center", color: "#94a3b8", fontSize: 13 }}>No rated tasks in this scope yet.</div>
+                            ) : (
+                                <ResponsiveContainer width="100%" height={280}>
+                                    <PieChart>
+                                        <Pie data={summaryQualityData.filter((quality) => quality.count > 0)} dataKey="count" nameKey="name" cx="50%" cy="48%" innerRadius={62} outerRadius={96} paddingAngle={2}>
+                                            {summaryQualityData.filter((quality) => quality.count > 0).map((quality) => <Cell key={quality.name} fill={quality.fill} />)}
+                                        </Pie>
+                                        <ChartTooltip />
+                                        <Legend
+                                            verticalAlign="bottom"
+                                            height={48}
+                                            content={() => (
+                                                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, max-content)", justifyContent: "center", columnGap: 16, rowGap: 5, width: "100%", padding: "0 4px" }}>
+                                                    {summaryQualityData.filter((quality) => quality.count > 0).map((quality) => (
+                                                        <div key={quality.name} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, lineHeight: "18px", color: quality.fill, whiteSpace: "nowrap" }}>
+                                                            <span style={{ width: 10, height: 10, borderRadius: 2, background: quality.fill }} />
+                                                            <span>{quality.name}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        />
+                                    </PieChart>
+                                </ResponsiveContainer>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -2780,26 +3763,32 @@ export default function JiraProjectView({ project, department, mode, initialTab,
 
                             {/* Top Right Controls: Status Pill + Timer Action */}
                             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                <Dropdown menu={{ items: getStatusMenuItems(selectedTask) }} trigger={["click"]}>
-                                    <button
-                                        style={{
-                                            background: normalizeStatus(selectedTask.task_status).bg,
-                                            color: normalizeStatus(selectedTask.task_status).text,
-                                            border: `1px solid ${normalizeStatus(selectedTask.task_status).border}`,
-                                            padding: "5px 12px",
-                                            borderRadius: 6,
-                                            fontSize: 13,
-                                            fontWeight: 600,
-                                            cursor: "pointer",
-                                            display: "inline-flex",
-                                            alignItems: "center",
-                                            gap: 6,
-                                        }}
-                                    >
-                                        <span>{normalizeStatus(selectedTask.task_status).label}</span>
-                                        <DownOutlined style={{ fontSize: 10 }} />
-                                    </button>
-                                </Dropdown>
+                                {canEditTask(selectedTask) ? (
+                                    <Dropdown menu={{ items: getStatusMenuItems(selectedTask) }} trigger={["click"]}>
+                                        <button
+                                            style={{
+                                                background: normalizeStatus(selectedTask.task_status).bg,
+                                                color: normalizeStatus(selectedTask.task_status).text,
+                                                border: `1px solid ${normalizeStatus(selectedTask.task_status).border}`,
+                                                padding: "5px 12px",
+                                                borderRadius: 6,
+                                                fontSize: 13,
+                                                fontWeight: 600,
+                                                cursor: "pointer",
+                                                display: "inline-flex",
+                                                alignItems: "center",
+                                                gap: 6,
+                                            }}
+                                        >
+                                            <span>{normalizeStatus(selectedTask.task_status).label}</span>
+                                            <DownOutlined style={{ fontSize: 10 }} />
+                                        </button>
+                                    </Dropdown>
+                                ) : (
+                                    <span style={{ color: normalizeStatus(selectedTask.task_status).text, background: normalizeStatus(selectedTask.task_status).bg, border: `1px solid ${normalizeStatus(selectedTask.task_status).border}`, padding: "5px 12px", borderRadius: 6, fontSize: 13, fontWeight: 600 }}>
+                                        {normalizeStatus(selectedTask.task_status).label}
+                                    </span>
+                                )}
 
                                 {isTaskMine(selectedTask) && (
                                     selectedTask.task_status === "not_started" ? (
@@ -2893,6 +3882,97 @@ export default function JiraProjectView({ project, department, mode, initialTab,
                                     )}
                                 </div>
 
+                                {selectedTask.recurring_source && isAdminUser && (
+                                    <div style={{ padding: 14, border: "1px solid #dfe1e6", borderRadius: 8, background: "#fff" }}>
+                                        <div style={{ fontSize: 14, fontWeight: 700, color: "#172b4d", marginBottom: 12 }}>Recurring Schedule</div>
+                                        {scheduleLoading || !scheduleDefinition ? (
+                                            <Spin size="small" />
+                                        ) : (
+                                            <div style={{ display: "flex", flexDirection: "column", gap: 14, opacity: scheduleDefinition.is_active ? 1 : 0.65 }}>
+                                                {!scheduleDefinition.is_active && <Tag color="default" style={{ width: "fit-content", margin: 0 }}>Schedule stopped</Tag>}
+                                                <div>
+                                                    <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", marginBottom: 5 }}>ASSIGNEE</div>
+                                                    <Select
+                                                        allowClear
+                                                        disabled={scheduleSaving || !scheduleDefinition.is_active}
+                                                        placeholder="Assign now or later"
+                                                        value={scheduleDefinition.assigned_to != null ? `employee_${scheduleDefinition.assigned_to}` : scheduleDefinition.assigned_to_admin != null ? `admin_${scheduleDefinition.assigned_to_admin}` : undefined}
+                                                        options={[
+                                                            ...employees.map((employee) => ({ value: `employee_${employee.id}`, label: employee.name })),
+                                                            ...reporters.filter((reporter) => reporter.type === "admin").map((reporter) => ({ value: `admin_${reporter.id}`, label: `${reporter.name} (Admin)` })),
+                                                        ]}
+                                                        onChange={(value) => {
+                                                            const [kind, id] = String(value || "").split("_");
+                                                            updateRecurringSchedule({
+                                                                assigned_to: kind === "employee" ? Number(id) : null,
+                                                                assigned_to_admin: kind === "admin" ? Number(id) : null,
+                                                            });
+                                                        }}
+                                                        style={{ width: "100%" }}
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", marginBottom: 7 }}>REPEAT ON</div>
+                                                    <Checkbox.Group
+                                                        disabled={scheduleSaving || !scheduleDefinition.is_active}
+                                                        value={scheduleDefinition.weekdays}
+                                                        options={WEEKDAY_OPTIONS}
+                                                        onChange={(values) => updateRecurringSchedule({ weekdays: values })}
+                                                        style={{ display: "flex", flexWrap: "wrap", gap: 8 }}
+                                                    />
+                                                </div>
+                                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                                                    <div>
+                                                        <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", marginBottom: 5 }}>START DATE</div>
+                                                        <DatePicker
+                                                            disabled={scheduleSaving || !scheduleDefinition.is_active}
+                                                            disabledDate={(date) => date.isBefore(dayjs(), "day")}
+                                                            value={scheduleDefinition.start_date ? dayjs(scheduleDefinition.start_date) : null}
+                                                            format="DD MMM YYYY"
+                                                            onChange={(date) => date && updateRecurringSchedule({ start_date: date.format("YYYY-MM-DD") })}
+                                                            style={{ width: "100%" }}
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", marginBottom: 5 }}>END DATE (OPTIONAL)</div>
+                                                        <DatePicker
+                                                            allowClear
+                                                            disabled={scheduleSaving || !scheduleDefinition.is_active}
+                                                            value={scheduleDefinition.end_date ? dayjs(scheduleDefinition.end_date) : null}
+                                                            format="DD MMM YYYY"
+                                                            placeholder="Ongoing"
+                                                            onChange={(date) => updateRecurringSchedule({ end_date: date ? date.format("YYYY-MM-DD") : null })}
+                                                            style={{ width: "100%" }}
+                                                        />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                {isAdminUser && activeTab === "review" && (
+                                    <div style={{ padding: 14, borderRadius: 8, border: "1px solid #bfdbfe", background: "#eff6ff" }}>
+                                        <div style={{ fontSize: 13, fontWeight: 700, color: "#1e3a8a", marginBottom: 10 }}>Employee Submission</div>
+                                        {selectedTask.task_sheet_link && (
+                                            <div style={{ marginBottom: selectedTask.employee_remarks ? 10 : 0, fontSize: 13 }}>
+                                                <strong>Task Sheet / PR Link: </strong>
+                                                {selectedTask.task_sheet_link.startsWith("http://") || selectedTask.task_sheet_link.startsWith("https://") ? (
+                                                    <a href={selectedTask.task_sheet_link} target="_blank" rel="noreferrer">Open submission link</a>
+                                                ) : selectedTask.task_sheet_link}
+                                            </div>
+                                        )}
+                                        {selectedTask.employee_remarks && (
+                                            <div style={{ fontSize: 13, color: "#334155", whiteSpace: "pre-wrap" }}>
+                                                <strong>Employee Remarks: </strong>{selectedTask.employee_remarks}
+                                            </div>
+                                        )}
+                                        {!selectedTask.task_sheet_link && !selectedTask.employee_remarks && (
+                                            <div style={{ color: "#64748b", fontSize: 12 }}>No link or remarks were included. Review any attachments below.</div>
+                                        )}
+                                    </div>
+                                )}
+
                                 {/* 2. ATTACHMENTS SECTION */}
                                 <div>
                                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
@@ -2918,7 +3998,8 @@ export default function JiraProjectView({ project, department, mode, initialTab,
                                                 }}
                                                 customRequest={async ({ file, onSuccess, onError }) => {
                                                     const formData = new FormData();
-                                                    formData.append("attachments", file as any);
+                                                    const rawFile = (file as any).originFileObj || file;
+                                                    formData.append("attachments", rawFile, (rawFile as any).name || (file as any).name || "attachment");
                                                     try {
                                                         const res = await fetch(`${BASE_URL}/api/tasks/${selectedTask.id}/attachments/`, {
                                                             method: "POST",
@@ -2932,8 +4013,20 @@ export default function JiraProjectView({ project, department, mode, initialTab,
                                                             onSuccess?.("ok");
                                                             fetchTasks();
                                                         } else {
-                                                            const err = await res.json().catch(() => ({}));
-                                                            message.error(err.detail || "Failed to upload attachment");
+                                                            const errText = await res.text();
+                                                            let errDetail = "";
+                                                            try {
+                                                                const errJson = JSON.parse(errText);
+                                                                errDetail = errJson.detail || errJson.message || "";
+                                                            } catch {
+                                                                const match = errText.match(/<pre class="exception_value">([\s\S]*?)<\/pre>/i) || errText.match(/<title>([\s\S]*?)<\/title>/i);
+                                                                if (match) {
+                                                                    errDetail = match[1].replace(/&#x27;/g, "'").replace(/<[^>]+>/g, "").trim();
+                                                                } else {
+                                                                    errDetail = `Upload failed (${res.status} ${res.statusText})`;
+                                                                }
+                                                            }
+                                                            message.error(errDetail || "Failed to upload attachment");
                                                             onError?.(new Error("upload failed"));
                                                         }
                                                     } catch {
@@ -2992,49 +4085,71 @@ export default function JiraProjectView({ project, department, mode, initialTab,
                                                     );
                                                 }
 
-                                                return filteredAtts.map((att) => (
-                                                    <div
-                                                        key={att.id}
-                                                        style={{
-                                                            display: "flex",
-                                                            justifyContent: "space-between",
-                                                            alignItems: "center",
-                                                            padding: "8px 0",
-                                                            borderBottom: "1px solid #f1f5f9",
-                                                        }}
-                                                    >
-                                                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                                                            <PaperClipOutlined style={{ color: "#0c66e4", fontSize: 16 }} />
-                                                            <a href={att.file} target="_blank" rel="noreferrer" style={{ fontSize: 13, fontWeight: 500, color: "#0c66e4" }}>
-                                                                {att.name || "Attachment"}
-                                                            </a>
+                                                return filteredAtts.map((att) => {
+                                                    const fileUrl = getAttachmentUrl(att.file);
+                                                    const isImg = isImageFile(att.name || att.file || "");
+                                                    return (
+                                                        <div
+                                                            key={att.id}
+                                                            style={{
+                                                                display: "flex",
+                                                                justifyContent: "space-between",
+                                                                alignItems: "center",
+                                                                padding: "8px 0",
+                                                                borderBottom: "1px solid #f1f5f9",
+                                                            }}
+                                                        >
+                                                            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                                                                {isImg ? (
+                                                                    <img
+                                                                        src={fileUrl}
+                                                                        alt={att.name || "attachment"}
+                                                                        style={{
+                                                                            width: 32,
+                                                                            height: 32,
+                                                                            objectFit: "cover",
+                                                                            borderRadius: 4,
+                                                                            border: "1px solid #e2e8f0",
+                                                                            cursor: "pointer",
+                                                                        }}
+                                                                        onClick={() => previewAttachmentFile(att.id, selectedTask.id)}
+                                                                    />
+                                                                ) : (
+                                                                    <PaperClipOutlined style={{ color: "#0c66e4", fontSize: 16 }} />
+                                                                )}
+                                                                <a href={fileUrl} target="_blank" rel="noreferrer" style={{ fontSize: 13, fontWeight: 500, color: "#0c66e4" }}>
+                                                                    {att.name || "Attachment"}
+                                                                </a>
+                                                            </div>
+                                                            <div style={{ display: "flex", alignItems: "center", gap: 16, color: "#64748b", fontSize: 12 }}>
+                                                                <span>{att.uploaded_at ? dayjs(att.uploaded_at).format("MMM DD, YYYY") : "Today"}</span>
+                                                                <span>{att.size ? `${Math.round(att.size / 1024)} KB` : "File"}</span>
+                                                                <a
+                                                                    href={fileUrl}
+                                                                    download={att.name || "download"}
+                                                                    onClick={(event) => {
+                                                                        event.preventDefault();
+                                                                        void downloadAttachmentFile(fileUrl, att.name || "attachment", att.id);
+                                                                    }}
+                                                                    style={{
+                                                                        display: "inline-flex",
+                                                                        alignItems: "center",
+                                                                        gap: 4,
+                                                                        color: "#0c66e4",
+                                                                        fontWeight: 600,
+                                                                        fontSize: 11.5,
+                                                                        background: "#f0f7ff",
+                                                                        padding: "3px 8px",
+                                                                        borderRadius: 6,
+                                                                        textDecoration: "none",
+                                                                    }}
+                                                                >
+                                                                    <DownloadOutlined /> Download
+                                                                </a>
+                                                            </div>
                                                         </div>
-                                                        <div style={{ display: "flex", alignItems: "center", gap: 16, color: "#64748b", fontSize: 12 }}>
-                                                            <span>{att.uploaded_at ? dayjs(att.uploaded_at).format("MMM DD, YYYY") : "Today"}</span>
-                                                            <span>{att.size ? `${Math.round(att.size / 1024)} KB` : "File"}</span>
-                                                            <a
-                                                                href={att.file}
-                                                                download={att.name || "download"}
-                                                                target="_blank"
-                                                                rel="noreferrer"
-                                                                style={{
-                                                                    display: "inline-flex",
-                                                                    alignItems: "center",
-                                                                    gap: 4,
-                                                                    color: "#0c66e4",
-                                                                    fontWeight: 600,
-                                                                    fontSize: 11.5,
-                                                                    background: "#f0f7ff",
-                                                                    padding: "3px 8px",
-                                                                    borderRadius: 6,
-                                                                    textDecoration: "none",
-                                                                }}
-                                                            >
-                                                                <DownloadOutlined /> Download
-                                                            </a>
-                                                        </div>
-                                                    </div>
-                                                ));
+                                                    );
+                                                });
                                             })()}
                                         </div>
                                     </div>
@@ -3074,7 +4189,7 @@ export default function JiraProjectView({ project, department, mode, initialTab,
                                                 flexShrink: 0,
                                             }}
                                         >
-                                            UK
+                                            {(user?.name?.trim()?.[0] || "U").toUpperCase()}
                                         </div>
                                         <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 8 }}>
                                             <Input.TextArea
@@ -3194,20 +4309,6 @@ export default function JiraProjectView({ project, department, mode, initialTab,
 
 
 
-                                {/* Due Date */}
-                                <div>
-                                    <div style={{ fontSize: 11, fontWeight: 600, color: "#64748b", marginBottom: 4 }}>Due date</div>
-                                    <DatePicker
-                                        value={selectedTask.due_date ? dayjs(selectedTask.due_date) : null}
-                                        onChange={(_d, ds) =>
-                                            handleUpdateTaskField(selectedTask.id, {
-                                                due_date: typeof ds === "string" ? ds : null,
-                                            })
-                                        }
-                                        style={{ width: "100%", borderRadius: 6 }}
-                                    />
-                                </div>
-
                                 {/* Priority */}
                                 <div>
                                     <div style={{ fontSize: 11, fontWeight: 600, color: "#64748b", marginBottom: 4 }}>Priority</div>
@@ -3221,6 +4322,126 @@ export default function JiraProjectView({ project, department, mode, initialTab,
                                             { value: "medium", label: "Medium" },
                                             { value: "low", label: "Low" },
                                         ]}
+                                    />
+                                </div>
+
+                                {/* SCREENSHOT 2: ALLOTTED TIME */}
+                                <div>
+                                    <div style={{ marginBottom: 4 }}>
+                                        <span style={{ fontWeight: 700, fontSize: 11, letterSpacing: "0.5px", color: "#334155", textTransform: "uppercase" }}>
+                                            <span style={{ color: "#ef4444", marginRight: 3 }}>*</span>ALLOTTED TIME
+                                        </span>
+                                    </div>
+                                    <div style={{ display: "flex", gap: 8 }}>
+                                        <InputNumber
+                                            min={0}
+                                            step={1}
+                                            placeholder="0"
+                                            addonAfter="hrs"
+                                            value={Math.floor(Number(selectedTask.allotted_time || 0))}
+                                            onChange={(h) => {
+                                                const currentMinutes = Math.round((Number(selectedTask.allotted_time || 0) % 1) * 60);
+                                                const newHours = Number(h || 0);
+                                                const totalM = newHours * 60 + currentMinutes;
+                                                const newAllotted = Math.round((totalM / 60.0) * 100) / 100;
+                                                const patch: Record<string, any> = { allotted_time: newAllotted };
+                                                if (selectedTask.start_date && totalM > 0) {
+                                                    const target = dayjs(selectedTask.start_date).add(totalM, "minute");
+                                                    patch.due_date = target.format("YYYY-MM-DD");
+                                                    patch.due_time = target.format("HH:mm:ss");
+                                                }
+                                                handleUpdateTaskField(selectedTask.id, patch);
+                                            }}
+                                            style={{ width: "50%" }}
+                                        />
+                                        <InputNumber
+                                            min={0}
+                                            max={59}
+                                            step={5}
+                                            placeholder="0"
+                                            addonAfter="mins"
+                                            value={Math.round((Number(selectedTask.allotted_time || 0) % 1) * 60)}
+                                            onChange={(m) => {
+                                                const currentHours = Math.floor(Number(selectedTask.allotted_time || 0));
+                                                const newMins = Number(m || 0);
+                                                const totalM = currentHours * 60 + newMins;
+                                                const newAllotted = Math.round((totalM / 60.0) * 100) / 100;
+                                                const patch: Record<string, any> = { allotted_time: newAllotted };
+                                                if (selectedTask.start_date && totalM > 0) {
+                                                    const target = dayjs(selectedTask.start_date).add(totalM, "minute");
+                                                    patch.due_date = target.format("YYYY-MM-DD");
+                                                    patch.due_time = target.format("HH:mm:ss");
+                                                }
+                                                handleUpdateTaskField(selectedTask.id, patch);
+                                            }}
+                                            style={{ width: "50%" }}
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* SCREENSHOT 3: START DATE */}
+                                <div>
+                                    <div style={{ marginBottom: 4 }}>
+                                        <span style={{ fontWeight: 700, fontSize: 11, letterSpacing: "0.5px", color: "#334155", textTransform: "uppercase" }}>
+                                            <span style={{ color: "#ef4444", marginRight: 3 }}>*</span>START DATE
+                                        </span>
+                                    </div>
+                                    <DatePicker
+                                        value={selectedTask.start_date ? dayjs(selectedTask.start_date) : null}
+                                        format="DD MMM YYYY"
+                                        onChange={(_d, ds) => {
+                                            const dateStr = typeof ds === "string" && ds ? dayjs(_d).format("YYYY-MM-DD") : null;
+                                            const patch: Record<string, any> = { start_date: dateStr };
+                                            const totalM = Math.round(Number(selectedTask.allotted_time || 0) * 60);
+                                            if (dateStr && totalM > 0) {
+                                                const target = dayjs(_d).add(totalM, "minute");
+                                                patch.due_date = target.format("YYYY-MM-DD");
+                                                patch.due_time = target.format("HH:mm:ss");
+                                            }
+                                            handleUpdateTaskField(selectedTask.id, patch);
+                                        }}
+                                        style={{ width: "100%", borderRadius: 6 }}
+                                    />
+                                </div>
+
+                                {/* SCREENSHOT 3: DUE DATE */}
+                                <div>
+                                    <div style={{ marginBottom: 4 }}>
+                                        <span style={{ fontWeight: 700, fontSize: 11, letterSpacing: "0.5px", color: "#334155", textTransform: "uppercase" }}>
+                                            <span style={{ color: "#ef4444", marginRight: 3 }}>*</span>DUE DATE
+                                        </span>
+                                    </div>
+                                    <DatePicker
+                                        value={selectedTask.due_date ? dayjs(selectedTask.due_date) : null}
+                                        format="DD MMM YYYY"
+                                        placeholder="Select date"
+                                        onChange={(_d, ds) =>
+                                            handleUpdateTaskField(selectedTask.id, {
+                                                due_date: typeof ds === "string" && ds ? dayjs(_d).format("YYYY-MM-DD") : null,
+                                            })
+                                        }
+                                        style={{ width: "100%", borderRadius: 6 }}
+                                    />
+                                </div>
+
+                                {/* SCREENSHOT 3: DEADLINE TIME */}
+                                <div>
+                                    <div style={{ marginBottom: 4 }}>
+                                        <span style={{ fontWeight: 700, fontSize: 11, letterSpacing: "0.5px", color: "#334155", textTransform: "uppercase" }}>
+                                            DEADLINE TIME
+                                        </span>
+                                    </div>
+                                    <TimePicker
+                                        value={selectedTask.due_time ? dayjs(selectedTask.due_time, ["HH:mm:ss", "HH:mm", "hh:mm A", "hh:mmA"]) : null}
+                                        format="hh:mm A"
+                                        use12Hours
+                                        placeholder="e.g. 03:00 PM"
+                                        onChange={(_t) =>
+                                            handleUpdateTaskField(selectedTask.id, {
+                                                due_time: _t ? _t.format("HH:mm:ss") : null,
+                                            })
+                                        }
+                                        style={{ width: "100%", borderRadius: 6 }}
                                     />
                                 </div>
 
@@ -3281,8 +4502,8 @@ export default function JiraProjectView({ project, department, mode, initialTab,
                                         Time Tracking
                                     </div>
                                     <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
-                                        <span>Logged: <b>{selectedTask.total_time_taken || "0.0"}h</b></span>
-                                        <span>Allotted: <b>{selectedTask.allotted_time || "1.0"}h</b></span>
+                                        <span>Logged: <b>{formatDuration(selectedTask.total_time_taken ?? 0)}</b></span>
+                                        <span>Allotted: <b>{formatDuration(selectedTask.allotted_time)}</b></span>
                                     </div>
                                     <Progress
                                         percent={
@@ -3308,73 +4529,28 @@ export default function JiraProjectView({ project, department, mode, initialTab,
             </Modal>
 
             {/* ── PAUSE MODAL (Task Pause Concept) ── */}
-            <Modal
-                title={
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <PauseCircleOutlined style={{ color: "#d97706" }} />
-                        <span>Pause Task: {pauseTarget?.sub_task_id || pauseTarget?.task_id}</span>
-                    </div>
-                }
+            <PauseTaskModal
                 open={pauseModalOpen}
-                onCancel={() => setPauseModalOpen(false)}
-                onOk={handleConfirmPause}
-                okText="Confirm Pause"
-                okButtonProps={{ style: { background: "#d97706" } }}
-            >
-                <div style={{ display: "flex", flexDirection: "column", gap: 14, paddingTop: 10 }}>
-                    <p style={{ color: "#64748b", margin: 0 }}>
-                        Select the break reason or custom pause duration. The timer will stop until resumed.
-                    </p>
-                    <div>
-                        <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Pause Type</div>
-                        <Select
-                            value={pauseType}
-                            onChange={(val) => setPauseType(val)}
-                            style={{ width: "100%" }}
-                            options={[
-                                { value: "break", label: "Break" },
-                                { value: "another_reason", label: "Another Reason" },
-                            ]}
-                        />
-                    </div>
-                    {pauseType === "break" ? (
-                        <div>
-                            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Break Option</div>
-                            <Select
-                                value={pauseOption}
-                                onChange={(val) => setPauseOption(val)}
-                                style={{ width: "100%" }}
-                                options={[
-                                    { value: "15_mins", label: "☕ 15 Mins Refreshment Break" },
-                                    { value: "30_mins", label: "🍽️ 30 Mins Lunch Break" },
-                                ]}
-                            />
-                        </div>
-                    ) : (
-                        <div>
-                            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Reason</div>
-                            <Input
-                                placeholder="State reason for pause..."
-                                value={pauseReason}
-                                onChange={(e) => setPauseReason(e.target.value)}
-                            />
-                        </div>
-                    )}
-                </div>
-            </Modal>
-
+                task={pauseTarget}
+                onClose={() => setPauseModalOpen(false)}
+                onSuccess={() => {
+                    setActiveTimerTaskId(null);
+                    setPauseTarget(null);
+                    fetchTasks();
+                }}
+            />
             {/* ── SUBMIT MODAL (Task Submit Concept) ── */}
             <Modal
                 title={
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <CheckCircleOutlined style={{ color: "#16a34a" }} />
-                        <span>Submit Deliverable: {submitTarget?.sub_task_id || submitTarget?.task_id}</span>
+                        <span>{submitTarget && ["submitted", "under_review", "resubmitted"].includes(submitTarget.task_status) ? "Resubmit Deliverable" : "Submit Deliverable"}: {submitTarget?.sub_task_id || submitTarget?.task_id}</span>
                     </div>
                 }
                 open={submitModalOpen}
                 onCancel={() => setSubmitModalOpen(false)}
                 onOk={handleConfirmSubmit}
-                okText="Submit Task"
+                okText={submitTarget && ["submitted", "under_review", "resubmitted"].includes(submitTarget.task_status) ? "Resubmit Task" : "Submit Task"}
             >
                 <div style={{ display: "flex", flexDirection: "column", gap: 14, paddingTop: 10 }}>
                     <div>
@@ -3399,6 +4575,38 @@ export default function JiraProjectView({ project, department, mode, initialTab,
                             onChange={(e) => setSubmitRemarks(e.target.value)}
                         />
                     </div>
+                    {existingSubmitAttachments.length > 0 && (
+                        <div>
+                            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Existing Attachments</div>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                                {existingSubmitAttachments.map((attachment) => {
+                                    const canRemove = !attachment.is_creation_attachment && attachment.uploaded_by === myId;
+                                    return (
+                                        <div key={attachment.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "6px 8px", border: "1px solid #e2e8f0", borderRadius: 6 }}>
+                                            <a href={getAttachmentUrl(attachment.file)} target="_blank" rel="noreferrer" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                                {attachment.name || "Attachment"}
+                                            </a>
+                                            {canRemove ? (
+                                                <Button
+                                                    type="text"
+                                                    danger
+                                                    size="small"
+                                                    icon={<CloseOutlined />}
+                                                    aria-label={`Remove ${attachment.name || "attachment"}`}
+                                                    onClick={() => {
+                                                        setDeletedSubmitAttachmentIds((ids) => ids.includes(attachment.id) ? ids : [...ids, attachment.id]);
+                                                        setExistingSubmitAttachments((items) => items.filter((item) => item.id !== attachment.id));
+                                                    }}
+                                                >
+                                                    Remove
+                                                </Button>
+                                            ) : <span style={{ color: "#94a3b8", fontSize: 11 }}>Not removable</span>}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
                     <div>
                         <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
                             Screenshots / Attachments <span style={{ color: "#94a3b8", fontWeight: 400 }}>(Optional - Images, Screenshots, PPT, DOCX, Excel, PDF)</span>
@@ -3493,6 +4701,337 @@ export default function JiraProjectView({ project, department, mode, initialTab,
                         </Button>
                     </div>
                 </div>
+            </Modal>
+
+            {/* ── CREATE TASK MODAL (Screenshots 2 & 3 Inputs) ── */}
+            <Modal
+                title={
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 18, color: "#D14E9A" }}>✦</span>
+                        <span style={{ fontWeight: 700, fontSize: 16 }}>{mode === "recurring" ? "Create Recurring Task" : "Create Task"}</span>
+                    </div>
+                }
+                open={createTaskModalOpen}
+                onCancel={() => {
+                    setCreateTaskModalOpen(false);
+                    createTaskForm.resetFields();
+                }}
+                footer={null}
+                width={650}
+                destroyOnClose
+                centered
+            >
+                <Form
+                    form={createTaskForm}
+                    layout="vertical"
+                    onFinish={handleCreateTaskSubmit}
+                    initialValues={{
+                        priority: "medium",
+                        start_date: dayjs(),
+                        allotted_hours: 0,
+                        allotted_minutes: 0,
+                        department: department.name,
+                        project_name: project?.project_name || "",
+                        reporter: reporters[0]?.key,
+                        recurring_start_date: dayjs(),
+                    }}
+                    style={{ marginTop: 14 }}
+                >
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                        <Form.Item
+                            name="department"
+                            label={<span style={{ fontWeight: 700, fontSize: 11.5, letterSpacing: "0.5px", color: "#1e293b", textTransform: "uppercase" }}><span style={{ color: "#ef4444", marginRight: 4 }}>*</span>DEPARTMENT</span>}
+                            rules={[{ required: true, message: "Department is required" }]}
+                        >
+                            <Input disabled style={{ borderRadius: 6, color: "#475569" }} />
+                        </Form.Item>
+                        <Form.Item
+                            name="project_name"
+                            label={<span style={{ fontWeight: 700, fontSize: 11.5, letterSpacing: "0.5px", color: "#1e293b", textTransform: "uppercase" }}>PROJECT NAME</span>}
+                        >
+                            <Input placeholder="e.g. Website Redesign" style={{ borderRadius: 6 }} />
+                        </Form.Item>
+                    </div>
+
+                    <Form.Item
+                        name="task_name"
+                        label={<span style={{ fontWeight: 700, fontSize: 11.5, letterSpacing: "0.5px", color: "#1e293b", textTransform: "uppercase" }}><span style={{ color: "#ef4444", marginRight: 4 }}>*</span>TASK NAME</span>}
+                        rules={[{ required: true, message: "Task name is required" }]}
+                    >
+                        <Input placeholder="What needs to be done?" style={{ borderRadius: 6 }} />
+                    </Form.Item>
+
+                    <Form.Item
+                        name="task_details"
+                        label={<span style={{ fontWeight: 700, fontSize: 11.5, letterSpacing: "0.5px", color: "#1e293b", textTransform: "uppercase" }}>TASK DETAILS / DESCRIPTION</span>}
+                    >
+                        <Input.TextArea rows={3} placeholder="Add detailed instructions, specs, or context..." style={{ borderRadius: 6 }} />
+                    </Form.Item>
+
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                        <Form.Item
+                            name="assigned_to"
+                            label={<span style={{ fontWeight: 700, fontSize: 11.5, letterSpacing: "0.5px", color: "#1e293b", textTransform: "uppercase" }}>ASSIGNEE</span>}
+                        >
+                            <Select
+                                placeholder={mode === "recurring" ? "Assign now or later" : "Select assignee"}
+                                allowClear
+                                options={employees.map((e) => ({ value: e.id, label: e.name }))}
+                                style={{ borderRadius: 6 }}
+                            />
+                        </Form.Item>
+
+                        <Form.Item
+                            name="priority"
+                            label={<span style={{ fontWeight: 700, fontSize: 11.5, letterSpacing: "0.5px", color: "#1e293b", textTransform: "uppercase" }}><span style={{ color: "#ef4444", marginRight: 4 }}>*</span>PRIORITY</span>}
+                            rules={[{ required: true }]}
+                        >
+                            <Select
+                                options={[
+                                    { value: "critical", label: "Highest / Critical" },
+                                    { value: "high", label: "High" },
+                                    { value: "medium", label: "Medium" },
+                                    { value: "low", label: "Low" },
+                                ]}
+                                style={{ borderRadius: 6 }}
+                            />
+                        </Form.Item>
+                    </div>
+
+                    <Form.Item
+                        name="reporter"
+                        label={<span style={{ fontWeight: 700, fontSize: 11.5, letterSpacing: "0.5px", color: "#1e293b", textTransform: "uppercase" }}>REPORTER</span>}
+                    >
+                        <Select
+                            placeholder="Select reporter"
+                            allowClear
+                            options={reporters.map((r) => ({ value: r.key, label: r.label }))}
+                            style={{ borderRadius: 6 }}
+                        />
+                    </Form.Item>
+
+                    {/* ── SCREENSHOT 2: ALLOTTED TIME ── */}
+                    <div style={{ marginBottom: 16 }}>
+                        <div style={{ marginBottom: 6 }}>
+                            <span style={{ fontWeight: 700, fontSize: 11.5, letterSpacing: "0.5px", color: "#1e293b", textTransform: "uppercase" }}>
+                                <span style={{ color: "#ef4444", marginRight: 4 }}>*</span>ALLOTTED TIME
+                            </span>
+                        </div>
+                        <div style={{ display: "flex", gap: 12 }}>
+                            <Form.Item name="allotted_hours" noStyle>
+                                <InputNumber
+                                    min={0}
+                                    max={999999}
+                                    step={1}
+                                    placeholder="0"
+                                    addonAfter="hrs"
+                                    style={{ width: "50%" }}
+                                    onChange={(h) => handleDurationChange(h, createTaskForm.getFieldValue("allotted_minutes"), createTaskForm.getFieldValue("start_date"))}
+                                />
+                            </Form.Item>
+                            <Form.Item name="allotted_minutes" noStyle>
+                                <InputNumber
+                                    min={0}
+                                    max={59}
+                                    step={5}
+                                    placeholder="0"
+                                    addonAfter="mins"
+                                    style={{ width: "50%" }}
+                                    onChange={(m) => handleDurationChange(createTaskForm.getFieldValue("allotted_hours"), m, createTaskForm.getFieldValue("start_date"))}
+                                />
+                            </Form.Item>
+                        </div>
+                    </div>
+
+                    {/* ── SCREENSHOT 3: START DATE, DUE DATE, DEADLINE TIME ── */}
+                    {mode === "recurring" ? (
+                        <>
+                            <Form.Item label="REPEAT ON" required>
+                                <Checkbox.Group
+                                    value={recurringWeekdays}
+                                    onChange={(values) => setRecurringWeekdays(values as number[])}
+                                    options={["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((label, value) => ({ label, value }))}
+                                />
+                            </Form.Item>
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 8 }}>
+                                <Form.Item name="recurring_start_date" label="START DATE" rules={[{ required: true, message: "Required" }]}>
+                                    <DatePicker disabledDate={(date) => date.isBefore(dayjs(), "day")} format="DD MMM YYYY" style={{ width: "100%" }} />
+                                </Form.Item>
+                                <Form.Item name="recurring_end_date" label="END DATE (OPTIONAL)" help="Leave blank to repeat until stopped manually">
+                                    <DatePicker format="DD MMM YYYY" style={{ width: "100%" }} />
+                                </Form.Item>
+                            </div>
+                        </>
+                    ) : (
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 8 }}>
+                        <Form.Item
+                            name="start_date"
+                            label={<span style={{ fontWeight: 700, fontSize: 11.5, letterSpacing: "0.5px", color: "#1e293b", textTransform: "uppercase" }}><span style={{ color: "#ef4444", marginRight: 4 }}>*</span>START DATE</span>}
+                            rules={[{ required: true, message: "Required" }]}
+                        >
+                            <DatePicker
+                                format="DD MMM YYYY"
+                                style={{ width: "100%" }}
+                                onChange={(d) => handleDurationChange(createTaskForm.getFieldValue("allotted_hours"), createTaskForm.getFieldValue("allotted_minutes"), d)}
+                            />
+                        </Form.Item>
+
+                        <Form.Item
+                            name="due_date"
+                            label={<span style={{ fontWeight: 700, fontSize: 11.5, letterSpacing: "0.5px", color: "#1e293b", textTransform: "uppercase" }}><span style={{ color: "#ef4444", marginRight: 4 }}>*</span>DUE DATE</span>}
+                            rules={[{ required: true, message: "Required" }]}
+                        >
+                            <DatePicker
+                                format="DD MMM YYYY"
+                                placeholder="Select date"
+                                style={{ width: "100%" }}
+                            />
+                        </Form.Item>
+
+                        <Form.Item
+                            name="due_time"
+                            label={<span style={{ fontWeight: 700, fontSize: 11.5, letterSpacing: "0.5px", color: "#1e293b", textTransform: "uppercase" }}>DEADLINE TIME</span>}
+                        >
+                            <TimePicker
+                                format="hh:mm A"
+                                use12Hours
+                                placeholder="e.g. 03:00 PM"
+                                style={{ width: "100%" }}
+                            />
+                        </Form.Item>
+                    </div>
+                    )}
+
+                    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 20 }}>
+                        <Button
+                            onClick={() => {
+                                setCreateTaskModalOpen(false);
+                                createTaskForm.resetFields();
+                            }}
+                            style={{ borderRadius: 6 }}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            type="primary"
+                            htmlType="submit"
+                            loading={createTaskLoading}
+                            style={{ background: "#D14E9A", borderColor: "#D14E9A", borderRadius: 6, fontWeight: 600 }}
+                        >
+                            {mode === "recurring" ? "Schedule Recurring Task" : "Create Task"}
+                        </Button>
+                    </div>
+                </Form>
+            </Modal>
+
+            <Modal
+                open={approveReviewOpen}
+                onCancel={() => setApproveReviewOpen(false)}
+                onOk={handleApproveReviewedTask}
+                confirmLoading={approveReviewLoading}
+                title="Approve Task"
+                okText="Approve & Complete"
+                width={520}
+                centered
+                destroyOnClose
+            >
+                {reviewTarget && (
+                    <>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", marginBottom: 16, background: "#f1f5f9", borderRadius: 8 }}>
+                            <Tag color="blue" style={{ margin: 0 }}>{reviewTarget.sub_task_id || reviewTarget.task_id}</Tag>
+                            <span style={{ fontWeight: 600, color: "#172b4d" }}>{reviewTarget.task_name}</span>
+                        </div>
+                        <Form form={approveReviewForm} layout="vertical">
+                            <Form.Item name="quality_of_task" label="Quality of Task" rules={[{ required: true, message: "Select a quality rating." }]}>
+                                <Select
+                                    placeholder="Select quality"
+                                    options={REVIEW_QUALITY_OPTIONS.map((option) => ({
+                                        value: option.value,
+                                        label: option.label,
+                                    }))}
+                                    optionRender={(option) => {
+                                        const quality = REVIEW_QUALITY_OPTIONS.find((item) => item.value === option.value);
+                                        return (
+                                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
+                                                <span>{quality?.label}</span>
+                                                <span aria-label={`${quality?.rating ?? 0} stars`} style={{ color: "#f5c400", letterSpacing: 2, whiteSpace: "nowrap" }}>
+                                                    {"★".repeat(quality?.rating ?? 0)}
+                                                </span>
+                                            </div>
+                                        );
+                                    }}
+                                />
+                            </Form.Item>
+                            <Form.Item name="admin_remarks" label="Admin Remarks">
+                                <Input.TextArea rows={3} placeholder="Optional notes for the employee" />
+                            </Form.Item>
+                        </Form>
+                    </>
+                )}
+            </Modal>
+
+            <Modal
+                open={reworkReviewOpen}
+                onCancel={() => setReworkReviewOpen(false)}
+                onOk={handleRequestTaskRework}
+                confirmLoading={reworkReviewLoading}
+                title="Request Rework"
+                okText="Send Back for Rework"
+                okButtonProps={{ danger: true }}
+                width={520}
+                centered
+                destroyOnClose
+            >
+                {reviewTarget && (
+                    <>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", marginBottom: 16, background: "#f1f5f9", borderRadius: 8 }}>
+                            <Tag color="blue" style={{ margin: 0 }}>{reviewTarget.sub_task_id || reviewTarget.task_id}</Tag>
+                            <span style={{ fontWeight: 600, color: "#172b4d" }}>{reviewTarget.task_name}</span>
+                        </div>
+                        <Form form={reworkReviewForm} layout="vertical">
+                            <Form.Item name="admin_remarks" label="Reason for Rework" rules={[{ required: true, message: "Explain what needs to be changed." }]}>
+                                <Input.TextArea rows={4} placeholder="Explain what needs to be fixed or redone" />
+                            </Form.Item>
+                        </Form>
+                    </>
+                )}
+            </Modal>
+
+            <Modal
+                open={!!previewAttachment}
+                title={previewAttachment?.name || "Attachment Preview"}
+                onCancel={closeAttachmentPreview}
+                footer={[
+                    <Button key="close" onClick={closeAttachmentPreview}>Close</Button>,
+                    <Button
+                        key="download"
+                        type="primary"
+                        icon={<DownloadOutlined />}
+                        onClick={() => previewAttachment && downloadAttachmentFile(
+                            previewAttachment.file,
+                            previewAttachment.name,
+                            previewAttachment.attachmentId,
+                            previewAttachment.taskId,
+                        )}
+                    >
+                        Download
+                    </Button>,
+                ]}
+                width={1000}
+                centered
+                destroyOnClose
+            >
+                {previewAttachment && previewAttachment.mimeType.startsWith("image/") ? (
+                    <div style={{ display: "flex", justifyContent: "center", alignItems: "center", minHeight: 240, maxHeight: "75vh", overflow: "auto", background: "#111827", borderRadius: 8, padding: 8 }}>
+                        <img src={previewAttachment.url} alt={previewAttachment.name} style={{ display: "block", maxWidth: "100%", maxHeight: "72vh", objectFit: "contain" }} />
+                    </div>
+                ) : previewAttachment?.mimeType === "application/pdf" ? (
+                    <iframe title={previewAttachment.name} src={previewAttachment.url} style={{ width: "100%", height: "72vh", border: 0 }} />
+                ) : (
+                    <div style={{ padding: "40px 20px", textAlign: "center", color: "#64748b" }}>
+                        This file type cannot be previewed in the browser. Download it to view the file.
+                    </div>
+                )}
             </Modal>
         </div>
     );
