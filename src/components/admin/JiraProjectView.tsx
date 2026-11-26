@@ -33,7 +33,6 @@ import {
     MoreOutlined,
     CheckOutlined,
     DownOutlined,
-    RightOutlined,
     GlobalOutlined,
     ProfileOutlined,
     AppstoreOutlined,
@@ -455,9 +454,6 @@ export default function JiraProjectView({ project, department, mode, initialTab,
     const [aiThinking, setAiThinking] = useState(false);
 
     // Multi-attachment upload & forced download
-    const attachmentInputRef = useRef<HTMLInputElement>(null);
-    const [uploadingAttachment, setUploadingAttachment] = useState(false);
-
     const downloadAttachmentFile = async (fileUrl: string, fileName: string, attId?: number, taskId?: number) => {
         try {
             const attachmentTaskId = taskId ?? selectedTask?.id;
@@ -505,69 +501,6 @@ export default function JiraProjectView({ project, department, mode, initialTab,
     const closeAttachmentPreview = () => {
         if (previewAttachment?.url) window.URL.revokeObjectURL(previewAttachment.url);
         setPreviewAttachment(null);
-    };
-
-    const handleAttachmentUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const files = e.target.files;
-        if (!files || files.length === 0 || !selectedTask) return;
-
-        const fileList = Array.from(files);
-        const videoExts = [".mp4", ".mov", ".avi", ".mkv", ".wmv", ".flv", ".webm", ".m4v", ".3gp"];
-        const invalidVideos = fileList.filter((f) => {
-            const ext = f.name.substring(f.name.lastIndexOf(".")).toLowerCase();
-            return videoExts.includes(ext);
-        });
-
-        if (invalidVideos.length > 0) {
-            message.error("Video files are not allowed. Only images, docx, ppt, pdf, and excel files are supported.");
-            if (attachmentInputRef.current) attachmentInputRef.current.value = "";
-            return;
-        }
-
-        setUploadingAttachment(true);
-        const formData = new FormData();
-        fileList.forEach((file) => {
-            formData.append("attachments", file, file.name);
-        });
-
-        try {
-            const res = await fetch(`${BASE_URL}/api/tasks/${selectedTask.id}/attachments/`, {
-                method: "POST",
-                headers: { ...authHeaders() },
-                body: formData,
-            });
-
-            if (res.ok) {
-                const atts = await res.json();
-                setSelectedTask({ ...selectedTask, attachments: atts });
-                message.success(
-                    fileList.length > 1
-                        ? `${fileList.length} attachments uploaded successfully`
-                        : "Attachment uploaded successfully"
-                );
-                fetchTasks();
-            } else {
-                const errText = await res.text();
-                let errDetail = "";
-                try {
-                    const errJson = JSON.parse(errText);
-                    errDetail = errJson.detail || errJson.message || "";
-                } catch {
-                    const match = errText.match(/<pre class="exception_value">([\s\S]*?)<\/pre>/i) || errText.match(/<title>([\s\S]*?)<\/title>/i);
-                    if (match) {
-                        errDetail = match[1].replace(/&#x27;/g, "'").replace(/<[^>]+>/g, "").trim();
-                    } else {
-                        errDetail = `Upload failed (${res.status} ${res.statusText})`;
-                    }
-                }
-                message.error(errDetail || "Failed to upload attachments");
-            }
-        } catch {
-            message.error("Network error uploading attachments");
-        } finally {
-            setUploadingAttachment(false);
-            if (attachmentInputRef.current) attachmentInputRef.current.value = "";
-        }
     };
 
     // Fetch department projects for Trello board columns
@@ -854,7 +787,6 @@ export default function JiraProjectView({ project, department, mode, initialTab,
             });
             if (res.ok) {
                 const updated = await res.json();
-                setActiveTimerTaskId(task.id);
                 setTasks((prev) => prev.map((t) => (t.id === taskId ? updated : t)));
                 if (activeTab === "backlog" && (updated.assigned_to != null || updated.assigned_to_admin != null)) {
                     fetchTasks();
@@ -3679,7 +3611,7 @@ export default function JiraProjectView({ project, department, mode, initialTab,
             ) : (
                 <div style={{ background: "#fff", padding: "60px 20px", borderRadius: 12, textAlign: "center", border: "1px dashed #dfe1e6" }}>
                     <div style={{ fontSize: 32, marginBottom: 12 }}>📋</div>
-                    <h3 style={{ fontSize: 18, fontWeight: 600 }}>{activeTab.toUpperCase()} View</h3>
+                    <h3 style={{ fontSize: 18, fontWeight: 600 }}>View</h3>
                     <Button type="primary" style={{ background: "#D14E9A", borderColor: "#D14E9A", borderRadius: 6 }} onClick={() => setActiveTab("list")}>
                         Back to List
                     </Button>
